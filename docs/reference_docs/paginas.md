@@ -3185,6 +3185,3 @@ Este workflow determina a página de destino correta com base no tipo de usuári
 1.  **Change Page** - Se o tipo de usuário (`Current User's os_user_type`) FOR IGUAL A `developer`, `client`, ou `qa`, redireciona para a página `users` (Elemento: `Popup create/edit user`).
 2.  **Change Page** - Se o tipo de usuário (`Current User's os_user_type`) FOR IGUAL A `referrer`, redireciona para a página `referrer-dashboard` (Elemento: `Popup create/edit talent who referred this talent`).
 
-
----
-

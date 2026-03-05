@@ -1,26 +1,193 @@
 @import "tailwindcss";
 
+/* ================================================================
+   BLUR STUDIO — GLOBAL DESIGN TOKENS
+   Tailwind v4: all custom tokens live here via @theme {}
+   Source: docs/architecture.md — Design System
+   ================================================================ */
+
+/* ── Raw CSS custom properties ───────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Backgrounds */
+  --bg-base:     #0d0d10;
+  --bg-surface:  #18181b;
+  --bg-elevated: #1f1f23;
+  --bg-sidebar:  #111114;
+  --bg-muted:    #27272a;
+
+  /* Brand / Accent */
+  --accent:        #3b82f6;
+  --accent-hover:  #2563eb;
+  --accent-subtle: #1e3a5f;
+
+  /* Text */
+  --text-primary:   #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted:     #52525b;
+  --text-inverted:  #0d0d10;
+
+  /* Borders */
+  --border:        #27272a;
+  --border-subtle: #1f1f23;
+  --border-focus:  #3b82f6;
+
+  /* Layout */
+  --sidebar-width: 220px;
+
+  /* Status backgrounds */
+  --status-not-started-bg: #27272a;
+  --status-in-progress-bg: #1d3f7a;
+  --status-ready-qa-bg:    #4c1d95;
+  --status-done-bg:        #14532d;
+  --status-blocked-bg:     #7f1d1d;
+  --status-archived-bg:    #1f2937;
+  --status-prospecting-bg: #451a03;
+  --status-lost-deal-bg:   #111827;
+
+  /* Status text */
+  --status-not-started-text: #a1a1aa;
+  --status-in-progress-text: #93c5fd;
+  --status-ready-qa-text:    #d8b4fe;
+  --status-done-text:        #86efac;
+  --status-blocked-text:     #fca5a5;
+  --status-archived-text:    #9ca3af;
+  --status-prospecting-text: #fcd34d;
+  --status-lost-deal-text:   #6b7280;
 }
 
+/* ── Tailwind v4 theme registration ──────────────────────────── */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  /* Fonts */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Background colors — available as bg-base, bg-surface, etc. */
+  --color-base:          var(--bg-base);
+  --color-surface:       var(--bg-surface);
+  --color-elevated:      var(--bg-elevated);
+  --color-sidebar:       var(--bg-sidebar);
+  --color-muted:         var(--bg-muted);
+  --color-overlay:       rgba(0, 0, 0, 0.6);
+
+  /* Accent — available as bg-accent, text-accent, border-accent */
+  --color-accent:        var(--accent);
+  --color-accent-hover:  var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+
+  /* Text — available as text-primary, text-secondary, etc. */
+  --color-text-primary:   var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted:     var(--text-muted);
+  --color-text-inverted:  var(--text-inverted);
+
+  /* Borders — available as border-default, border-subtle, border-focus */
+  --color-border:        var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-focus:  var(--border-focus);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ── Base reset & body ───────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: var(--bg-base); }
+::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Focus ring ──────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* ── Form inputs ─────────────────────────────────────────────── */
+.input-field {
+  width: 100%;
+  background-color: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input-field:focus {
+  border-color: var(--accent);
+}
+.input-field::placeholder {
+  color: var(--text-muted);
+}
+
+/* ── Status badges ───────────────────────────────────────────── */
+/* Source: os_task_status, os_project_status (docs/reference_docs/option-sets.md) */
+/* Usage:  <span class="status-badge status-done">Done</span>                      */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.status-not-started  { background-color: var(--status-not-started-bg);  color: var(--status-not-started-text); }
+.status-in-progress  { background-color: var(--status-in-progress-bg);  color: var(--status-in-progress-text); }
+.status-ready-qa     { background-color: var(--status-ready-qa-bg);     color: var(--status-ready-qa-text); }
+.status-done         { background-color: var(--status-done-bg);         color: var(--status-done-text); }
+.status-blocked      { background-color: var(--status-blocked-bg);      color: var(--status-blocked-text); }
+.status-archived     { background-color: var(--status-archived-bg);     color: var(--status-archived-text); }
+.status-prospecting  { background-color: var(--status-prospecting-bg);  color: var(--status-prospecting-text); }
+.status-lost-deal    { background-color: var(--status-lost-deal-bg);    color: var(--status-lost-deal-text); }
+
+/* ── Typography helpers ──────────────────────────────────────── */
+/* Maps to Bubble named styles: Text_heading_3_, Text_body_small_ */
+.text-heading-1 { font-size: 24px; font-weight: 700; line-height: 1.2; }
+.text-heading-2 { font-size: 18px; font-weight: 600; line-height: 1.3; }
+.text-heading-3 { font-size: 14px; font-weight: 600; line-height: 1.4; }
+.text-body      { font-size: 14px; font-weight: 400; line-height: 1.5; }
+.text-body-sm   { font-size: 12px; font-weight: 400; line-height: 1.5; }
+.text-label     { font-size: 11px; font-weight: 500; line-height: 1.4; letter-spacing: 0.05em; }
+
+/* ── Layout shells ───────────────────────────────────────────── */
+/* Source: FG sidebar pattern in docs/reference_docs/elementos-reutilizaveis.md */
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  height: 100vh;
+  width: var(--sidebar-width);
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+  overflow-y: auto;
+}
+
+.page-shell {
+  margin-left: var(--sidebar-width);
+  min-height: 100vh;
+  background-color: var(--bg-base);
+  padding: 24px;
 }

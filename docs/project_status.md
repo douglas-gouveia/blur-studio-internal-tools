@@ -9,19 +9,22 @@
 
 ## Phase 2 — Database
 - [ ] Supabase project created & connected
-- [ ] Enums created from `option-sets.md`
-- [ ] Tables created from `tabelas.md`
-- [ ] RLS policies applied from Bubble Privacy Rules
+- [x] Enums created from `option-sets.md` (24 enums in migration)
+- [x] Tables created from `tabelas.md` (39 tables in migration)
+- [x] RLS policies applied from Bubble Privacy Rules (70+ policies in migration)
+- [ ] Migration executed in Supabase SQL editor
+- [ ] Supabase types generated → `src/lib/supabase/types.ts`
 
 ## Phase 3 — Auth
-- [ ] Supabase Auth configured
-- [ ] Sign-in page (`signin`) implemented
-- [ ] Password reset flow implemented
-- [ ] User type routing (admin / manager / client / talent / referrer)
+- [x] Supabase Auth configured — `@supabase/ssr` installed, server + browser clients created
+- [x] Sign-in page (`signin`) implemented — `src/app/signin/page.tsx` (3 views)
+- [x] Password reset flow implemented — `sendPasswordReset` Server Action + `email_sent` confirmation view
+- [x] User type routing — `signIn` action routes referrer → `/referrer-dashboard`, others → `/projects`
+- [x] Session middleware — `src/middleware.ts` protects all routes, refreshes tokens
 
 ## Phase 4 — Core Pages
 - [ ] `dashboard`
-- [ ] `projects`
+- [x] `projects`
 - [ ] `okrs`
 - [ ] `internal-projects`
 - [ ] `talent-pool`
@@ -42,9 +45,11 @@
 - [ ] Group filters (status, assignees, time track, etc.)
 
 ## Phase 6 — API Integrations
-- [ ] Brevo email service (transactional & bulk)
-- [ ] OpenAI integration (GPT-5 / Responses API)
-- [ ] Gemini integration (gemini-2.5-flash)
+- [x] Brevo email service — `src/lib/api/brevo.ts` (7 functions, all template calls)
+- [x] OpenAI integration — `src/lib/api/openai.ts` (Responses API, JSON helper)
+- [x] Gemini integration — `src/lib/api/gemini.ts` (gemini-2.5-flash, JSON helper)
+- [x] JSON converters — `src/lib/api/json-converters.ts` (replaces Bubble self-API calls)
+- [ ] `verifyTalent` / `verifyClient` — stubbed, needs Supabase query implementation
 
 ## Phase 7 — Deployment
 - [ ] Vercel project linked

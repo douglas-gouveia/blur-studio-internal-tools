@@ -1118,6 +1118,3 @@ Elemento reutilizável exibido em dispositivos móveis para informar ao usuário
   * **Group Container** (Group) - Agrupa os elementos visuais do banner.
     * **Icon B** (Icon) - Exibe o ícone de "nuvem cortada" indicando offline.
     * **Text B** (Text) - Exibe a mensagem "Offline - you are using cached data.".
-
----
-
