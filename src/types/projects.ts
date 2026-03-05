@@ -81,6 +81,23 @@ export interface UserProfile {
   type: UserType | null;
 }
 
+export interface UserRow extends UserProfile {
+  email: string;
+  country: string | null;
+  created_at: string;
+}
+
+export const USER_TYPE_LABELS: Record<UserType, string> = {
+  admin:       "Admin",
+  manager:     "Manager",
+  operational: "Operational",
+  developer:   "Developer",
+  client:      "Client",
+  qa:          "QA",
+  referrer:    "Referrer",
+  lead:        "Lead",
+};
+
 export interface TaskAssignee {
   user_id: string;
   profiles: {
