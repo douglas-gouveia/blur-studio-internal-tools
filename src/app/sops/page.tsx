@@ -91,7 +91,10 @@ export default async function SopsPage({ searchParams }: Props) {
         {/* Editor panel */}
         <div className="flex-1 min-w-0 overflow-hidden">
           {activeSop ? (
+            /* key forces a full remount when the selected SOP changes,
+               so useState in SopEditor always starts fresh */
             <SopEditor
+              key={activeSop.id}
               sop={activeSop}
               versions={versions}
             />
