@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { SopWithTags, SopTag } from "@/types/sops";
 import type { UserProfile } from "@/types/projects";
@@ -28,6 +28,10 @@ export default function SopList({ sops, allTags, profiles, activeSopId }: Props)
   const [localTags, setLocalTags]   = useState(allTags);
   const [localSops, setLocalSops]   = useState(sops);
 
+  // Sync local state when server re-fetches after router.refresh()
+  useEffect(() => { setLocalSops(sops); }, [sops]);
+  useEffect(() => { setLocalTags(allTags); }, [allTags]);
+
   const [deleting, startDelete] = useTransition();
   const [deleteError, setDeleteError] = useState("");
 
@@ -47,10 +51,9 @@ export default function SopList({ sops, allTags, profiles, activeSopId }: Props)
     setLocalTags((prev) => [...prev, tag]);
   }
 
-  function handleSopSaved(newSop?: SopWithTags) {
-    // After create/edit, router.refresh() will update server data; optimistic update optional
-    router.refresh();
+  function handleModalClose() {
     setSopModal({ open: false, sop: null });
+    router.refresh();
   }
 
   function handleDelete() {
@@ -189,7 +192,7 @@ export default function SopList({ sops, allTags, profiles, activeSopId }: Props)
       {/* Create / Edit Modal */}
       <SopModal
         open={sopModal.open}
-        onClose={() => setSopModal({ open: false, sop: null })}
+        onClose={handleModalClose}
         sop={sopModal.sop}
         allTags={localTags}
         profiles={profiles}
