@@ -42,16 +42,16 @@ function getInitials(first: string | null, last: string | null): string {
   return ((first?.[0] ?? "") + (last?.[0] ?? "")).toUpperCase() || "?";
 }
 
-function ProgressBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
-  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+function ProgressBar({ label, pct }: { label: string; pct: number }) {
+  const clamped = Math.min(100, Math.max(0, Math.round(pct)));
   return (
     <div className="space-y-1">
-      <div className="flex justify-between items-center">
-        <span className="text-[11px] text-text-secondary">{label}</span>
-        <span className="text-[11px] text-text-muted">{pct}%</span>
-      </div>
-      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+      <span className="text-xs text-text-secondary">{label}</span>
+      <div className="h-5 bg-muted rounded overflow-hidden relative">
+        <div className="h-full bg-accent transition-all rounded" style={{ width: `${clamped}%` }} />
+        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold text-white mix-blend-normal">
+          {clamped}%
+        </span>
       </div>
     </div>
   );
@@ -70,6 +70,7 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
   const [program, setProgram] = useState<ProjectProgram | "">("");
   const [stage, setStage] = useState<ProjectStage | "">("");
   const [estimatedTime, setEstimatedTime] = useState("");
+  const [realTimeVal, setRealTimeVal] = useState("");
   const [price, setPrice] = useState("");
   const [commission, setCommission] = useState("0.00");
   const [startEst, setStartEst] = useState("");
@@ -100,6 +101,7 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
     setProgram(project?.program ?? "");
     setStage(project?.stage ?? "");
     setEstimatedTime(project?.estimated_time?.toString() ?? "");
+    setRealTimeVal(project?.real_time?.toString() ?? "");
     setPrice(project?.price?.toString() ?? "");
     setCommission(project?.referrer_commission?.toString() ?? "0.00");
     setStartEst(project?.start_date_estimated ?? "");
@@ -162,6 +164,7 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
       program: (program || null) as ProjectProgram | null,
       stage: (stage || null) as ProjectStage | null,
       estimated_time: estimatedTime ? parseFloat(estimatedTime) : null,
+      real_time: realTimeVal ? parseFloat(realTimeVal) : null,
       price: price ? parseFloat(price) : null,
       referrer_commission: commission ? parseFloat(commission) : null,
       start_date_estimated: startEst || null,
@@ -193,11 +196,11 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
   };
 
   // Progress bar calculations
-  const totalEst = taskProgress?.totalEst ?? 0;
+  const totalEst    = taskProgress?.totalEst ?? 0;
   const doneOrQaEst = taskProgress?.doneOrQaEst ?? 0;
   const doneOnlyEst = taskProgress?.doneEst ?? 0;
-  const realTime = project?.real_time ?? 0;
-  const projEstTime = project?.estimated_time ?? 0;
+  const realTime    = project?.real_time ?? 0;
+  const projEstTime = parseFloat(estimatedTime) || project?.estimated_time || 0;
 
   const schedPct = (() => {
     if (!startEst || !endEst) return 0;
@@ -210,33 +213,20 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
 
   return (
     <>
-      <Modal open={open} onClose={onClose} title={isEdit ? "Edit Project" : "New Project"} width="max-w-2xl">
+      <Modal open={open} onClose={onClose} title={isEdit ? "Project" : "New Project"} width="max-w-2xl">
         <div className="px-6 pb-2 space-y-5 overflow-y-auto max-h-[75vh]">
 
-          {/* Progress bars (edit mode only) */}
-          {isEdit && (
-            <div className="bg-muted/50 border border-border rounded-lg p-4 space-y-3">
-              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Progress Overview</h4>
-              <ProgressBar label="Schedule (by dates)" value={schedPct} max={100} color="bg-blue-500" />
-              <ProgressBar label="Tasks done or in QA (by est. time)" value={doneOrQaEst} max={totalEst} color="bg-green-500" />
-              <ProgressBar label="Tasks fully done (by est. time)" value={doneOnlyEst} max={totalEst} color="bg-emerald-600" />
-              <ProgressBar label="Hours used (real / estimated)" value={realTime} max={projEstTime} color="bg-orange-500" />
+          {/* Photo */}
+          <div className="flex justify-center pt-2">
+            <div className="w-20 h-20 rounded-full bg-muted border border-border flex items-center justify-center text-text-muted text-xs overflow-hidden">
+              {project?.picture ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={project.picture} alt="" className="w-full h-full object-cover" />
+              ) : (
+                "Photo"
+              )}
             </div>
-          )}
-
-          {/* Picture placeholder */}
-          {isEdit && (
-            <div className="flex justify-center pt-2">
-              <div className="w-20 h-20 rounded-xl bg-muted border border-border flex items-center justify-center text-text-muted text-xs">
-                {project?.picture ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={project.picture} alt="" className="w-full h-full object-cover rounded-xl" />
-                ) : (
-                  "Photo"
-                )}
-              </div>
-            </div>
-          )}
+          </div>
 
           {/* Name */}
           <Field label="Name" required>
@@ -308,13 +298,13 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
             </Field>
           </div>
 
-          {/* Est. time + Price */}
+          {/* Estimated Time + Real Time */}
           <div className="grid grid-cols-2 gap-4">
             <Field label="Estimated Time (h)">
               <input type="number" min="0" step="0.5" value={estimatedTime} onChange={(e) => setEstimatedTime(e.target.value)} className="input-field" placeholder="0" />
             </Field>
-            <Field label="Total Price ($)">
-              <input type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} className="input-field" placeholder="0.00" />
+            <Field label="Real Time (h)">
+              <input type="number" min="0" step="0.01" value={realTimeVal} onChange={(e) => setRealTimeVal(e.target.value)} className="input-field" placeholder="0.00" />
             </Field>
           </div>
 
@@ -338,81 +328,74 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
             </Field>
           </div>
 
-          {/* Recommended by */}
-          <Field label="Recommended by">
-            <select
-              value={recommendedBy}
-              onChange={(e) => {
-                setRecommendedBy(e.target.value as typeof recommendedBy);
-                setSelectedTalent(null);
-                setTalentSearch("");
-                setTalentResults([]);
-              }}
-              className="input-field"
-            >
-              <option value="">None</option>
-              <option value="dev_agency_owner">Dev. / Agency Owner</option>
-              <option value="client">Client</option>
-            </select>
-          </Field>
+          {/* Total Price + Recommended by */}
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Total Price ($)">
+              <input type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} className="input-field" placeholder="0.00" />
+            </Field>
+            <Field label="Recommended by">
+              <select
+                value={recommendedBy}
+                onChange={(e) => {
+                  setRecommendedBy(e.target.value as typeof recommendedBy);
+                  setSelectedTalent(null);
+                  setTalentSearch("");
+                  setTalentResults([]);
+                }}
+                className="input-field"
+              >
+                <option value="">None</option>
+                <option value="dev_agency_owner">Dev./Agency Owner</option>
+                <option value="client">Client</option>
+              </select>
+            </Field>
+          </div>
 
-          {/* Talent search — shown when Dev./Agency Owner selected */}
+          {/* Dev/Agency Owner + Commission — shown when selected */}
           {recommendedBy === "dev_agency_owner" && (
             <div className="space-y-3">
-              <Field label="Dev. / Agency Owner">
-                <div ref={talentSearchRef} className="relative">
-                  <input
-                    type="text"
-                    value={talentSearch}
-                    onChange={(e) => handleTalentSearch(e.target.value)}
-                    onFocus={() => setTalentDropdownOpen(true)}
-                    className="input-field"
-                    placeholder="Search by name…"
-                  />
-                  {talentDropdownOpen && (talentResults.length > 0 || isSearching) && (
-                    <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-elevated border border-border rounded-md shadow-lg py-1 max-h-48 overflow-y-auto">
-                      {isSearching && (
-                        <p className="text-xs text-text-muted px-3 py-2">Searching…</p>
-                      )}
-                      {talentResults.map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => handleSelectTalent(t)}
-                          className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-muted hover:text-text-primary transition-colors"
-                        >
-                          {t.name ?? "Unnamed"}
-                          {t.email && <span className="text-text-muted ml-2 text-xs">{t.email}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </Field>
-              {selectedTalent && (
-                <div className="flex items-center justify-between bg-muted rounded-md px-3 py-2">
-                  <span className="text-sm text-text-primary">{selectedTalent.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedTalent(null); setTalentSearch(""); }}
-                    className="text-text-muted hover:text-red-400 text-xs"
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Dev or Agency Owner who recommended this project">
+                  <div ref={talentSearchRef} className="relative">
+                    <input
+                      type="text"
+                      value={talentSearch}
+                      onChange={(e) => handleTalentSearch(e.target.value)}
+                      onFocus={() => setTalentDropdownOpen(true)}
+                      className="input-field"
+                      placeholder="Search by name…"
+                    />
+                    {talentDropdownOpen && (talentResults.length > 0 || isSearching) && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-elevated border border-border rounded-md shadow-lg py-1 max-h-48 overflow-y-auto">
+                        {isSearching && (
+                          <p className="text-xs text-text-muted px-3 py-2">Searching…</p>
+                        )}
+                        {talentResults.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => handleSelectTalent(t)}
+                            className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-muted hover:text-text-primary transition-colors"
+                          >
+                            {t.name ?? "Unnamed"}
+                            {t.email && <span className="text-text-muted ml-2 text-xs">{t.email}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Field>
+                <Field label="Commission (%)">
+                  <input type="number" min="0" max="100" step="0.01" value={commission} onChange={(e) => setCommission(e.target.value)} className="input-field" placeholder="0.00" />
+                </Field>
+              </div>
               <button
                 type="button"
                 onClick={() => setCreateTalentOpen(true)}
                 className="text-xs text-accent hover:underline"
               >
-                Didn't find? Create new talent →
+                Didn't find the Dev or Agency Owner who…
               </button>
-
-              {/* Commission */}
-              <Field label="Commission (%)">
-                <input type="number" min="0" max="100" step="0.01" value={commission} onChange={(e) => setCommission(e.target.value)} className="input-field" placeholder="0.00" />
-              </Field>
             </div>
           )}
 
@@ -423,6 +406,17 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
             <Toggle label="Change Automatically This Project's Estimated Time" value={autoProjectEst} onChange={setAutoProjectEst} />
             <Toggle label="Change Automatically This Project's Start Date and End Date" value={autoProjectDates} onChange={setAutoProjectDates} />
           </div>
+
+          {/* Progress (edit mode only) — after toggles, before description */}
+          {isEdit && (
+            <div className="space-y-3">
+              <h4 className="text-xs font-semibold text-text-secondary">Progress</h4>
+              <ProgressBar label="By current date / estimated end date" pct={schedPct} />
+              <ProgressBar label="By tasks ready for QA & done / all tasks" pct={totalEst > 0 ? (doneOrQaEst / totalEst) * 100 : 0} />
+              <ProgressBar label="By tasks done / all tasks" pct={totalEst > 0 ? (doneOnlyEst / totalEst) * 100 : 0} />
+              <ProgressBar label="By real time / estimated time" pct={projEstTime > 0 ? (realTime / projEstTime) * 100 : 0} />
+            </div>
+          )}
 
           {/* Description */}
           <Field label="Description">

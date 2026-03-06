@@ -22,6 +22,7 @@ export interface ProjectInput {
   program: ProjectProgram | null;
   stage: ProjectStage | null;
   estimated_time: number | null;
+  real_time: number | null;
   price: number | null;
   referrer_commission: number | null;
   start_date_estimated: string | null;
