@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
 import type { UserProfile } from "@/types/projects";
+import { createClient } from "@/lib/supabase/client";
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
 
@@ -23,6 +25,9 @@ const NAV_ITEMS = [
 
 export default function Sidebar({ profile }: { profile: UserProfile | null }) {
   const pathname = usePathname();
+  const router   = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const userName =
     [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "User";
@@ -35,6 +40,24 @@ export default function Sidebar({ profile }: { profile: UserProfile | null }) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [menuOpen]);
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/signin");
+  }
 
   return (
     <aside className="sidebar">
@@ -73,27 +96,64 @@ export default function Sidebar({ profile }: { profile: UserProfile | null }) {
       </nav>
 
       {/* ── User ──────────────────────────────────────────────────── */}
-      <div className="px-3 py-4 border-t border-border flex items-center gap-2.5 shrink-0">
-        <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center text-text-muted text-xs font-semibold">
-          {profile?.picture ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={profile.picture}
-              alt={userName}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            initials
-          )}
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-text-primary truncate leading-tight">
-            {userName}
-          </p>
-          <p className="text-xs text-text-muted truncate capitalize leading-tight">
-            {userRole}
-          </p>
-        </div>
+      <div ref={menuRef} className="relative shrink-0">
+        {/* Profile / Sign Out popover */}
+        {menuOpen && (
+          <div className="absolute bottom-full left-2 right-2 mb-1 bg-elevated border border-border rounded-lg shadow-xl overflow-hidden z-50">
+            <Link
+              href="/profile"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-muted transition-colors"
+            >
+              <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              Profile
+            </Link>
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-text-secondary hover:text-red-400 hover:bg-muted transition-colors"
+            >
+              <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Sign Out
+            </button>
+          </div>
+        )}
+
+        {/* Clickable user row */}
+        <button
+          onClick={() => setMenuOpen((v) => !v)}
+          className="w-full px-3 py-4 border-t border-border flex items-center gap-2.5 hover:bg-muted/50 transition-colors"
+        >
+          <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center text-text-muted text-xs font-semibold">
+            {profile?.picture ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={profile.picture}
+                alt={userName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              initials
+            )}
+          </div>
+          <div className="min-w-0 flex-1 text-left">
+            <p className="text-xs font-medium text-text-primary truncate leading-tight">
+              {userName}
+            </p>
+            <p className="text-xs text-text-muted truncate capitalize leading-tight">
+              {userRole}
+            </p>
+          </div>
+          <svg
+            className={`w-3.5 h-3.5 shrink-0 text-text-muted transition-transform ${menuOpen ? "rotate-180" : ""}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+          </svg>
+        </button>
       </div>
     </aside>
   );
