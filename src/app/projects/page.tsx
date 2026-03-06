@@ -71,6 +71,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
             userType={userType}
             initialTab={initialTab}
             profiles={profiles}
+            currentUserId={user.id}
           />
         </main>
       </div>

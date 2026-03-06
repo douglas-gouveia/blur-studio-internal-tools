@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { Task, UserType, UserProfile } from "@/types/projects";
 import TaskModal from "../modals/TaskModal";
 import ConfirmDeleteModal from "../modals/ConfirmDeleteModal";
-import { deleteTask } from "../../actions";
+import { deleteTask, updateTask } from "../../actions";
 
 interface TasksKanbanProps {
   tasks: Task[];
@@ -14,6 +15,7 @@ interface TasksKanbanProps {
   type: "client_requests" | "qa_requests";
   onTrackQATime?: () => void;
   profiles?: UserProfile[];
+  currentUserId: string;
 }
 
 const COLUMNS: { key: Task["status"]; label: string }[] = [
@@ -32,26 +34,75 @@ const COLUMN_ACCENT: Record<Task["status"], string> = {
   blocked:      "border-t-[#ef4444]",
 };
 
-export default function TasksKanban({ tasks, userType, projectId, type, onTrackQATime, profiles = [] }: TasksKanbanProps) {
-  const filtered = tasks.filter((t) => t.type === type);
+export default function TasksKanban({
+  tasks, userType, projectId, type, onTrackQATime, profiles = [], currentUserId,
+}: TasksKanbanProps) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
   const canEdit = userType === "admin" || userType === "manager" || userType === "developer" || userType === "qa";
 
   const [taskModal, setTaskModal] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
+  const [modalKey, setModalKey] = useState(0);
+
+  // Local tasks for optimistic drag-drop updates
+  const [localTasks, setLocalTasks] = useState<Task[]>(() => tasks.filter((t) => t.type === type));
+  useEffect(() => { setLocalTasks(tasks.filter((t) => t.type === type)); }, [tasks, type]);
+
+  // Drag state
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<Task["status"] | null>(null);
 
   const byStatus = new Map<Task["status"], Task[]>();
   COLUMNS.forEach(({ key }) => byStatus.set(key, []));
-  filtered.forEach((t) => {
+  localTasks.forEach((t) => {
     const col = byStatus.get(t.status) ?? [];
     col.push(t);
     byStatus.set(t.status, col);
   });
 
+  function openCreate() {
+    setModalKey((k) => k + 1);
+    setTaskModal({ open: true, task: null });
+  }
+
+  function openEdit(task: Task) {
+    setModalKey((k) => k + 1);
+    setTaskModal({ open: true, task });
+  }
+
+  function handleDrop(targetStatus: Task["status"]) {
+    if (!draggingId) return;
+    const task = localTasks.find((t) => t.id === draggingId);
+    if (!task || task.status === targetStatus) {
+      setDraggingId(null);
+      setDragOverStatus(null);
+      return;
+    }
+    const targetCol = byStatus.get(targetStatus) ?? [];
+    const newOrder = targetCol.length;
+
+    // Optimistic update
+    setLocalTasks((prev) =>
+      prev.map((t) => t.id === draggingId ? { ...t, status: targetStatus, order: newOrder } : t)
+    );
+    setDraggingId(null);
+    setDragOverStatus(null);
+
+    startTransition(async () => {
+      await updateTask(draggingId, { status: targetStatus, order: newOrder });
+      router.refresh();
+    });
+  }
+
   return (
     <div className="flex flex-col gap-4 p-4">
       {type === "qa_requests" && canEdit && (
         <div className="flex justify-end">
-          <button onClick={onTrackQATime} className="flex items-center gap-2 px-4 py-2 rounded-md bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors">
+          <button
+            onClick={onTrackQATime}
+            className="flex items-center gap-2 px-4 py-2 rounded-md bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors"
+          >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -62,11 +113,20 @@ export default function TasksKanban({ tasks, userType, projectId, type, onTrackQ
 
       <div className="flex gap-3 overflow-x-auto pb-2">
         {COLUMNS.map(({ key, label }) => {
-          const col = byStatus.get(key) ?? [];
+          const col = (byStatus.get(key) ?? []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+          const isOver = dragOverStatus === key;
           return (
             <div
               key={key}
-              className={`flex flex-col gap-2 min-w-[220px] max-w-[220px] bg-surface rounded-lg border border-border border-t-2 ${COLUMN_ACCENT[key]}`}
+              className={`flex flex-col gap-2 min-w-[220px] max-w-[220px] rounded-lg border border-border border-t-2 transition-colors ${COLUMN_ACCENT[key]} ${isOver ? "bg-muted/60" : "bg-surface"}`}
+              onDragOver={(e) => { e.preventDefault(); setDragOverStatus(key); }}
+              onDragLeave={(e) => {
+                // Only clear if leaving the column itself, not a child
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setDragOverStatus(null);
+                }
+              }}
+              onDrop={() => handleDrop(key)}
             >
               {/* Column header */}
               <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
@@ -80,17 +140,18 @@ export default function TasksKanban({ tasks, userType, projectId, type, onTrackQ
 
               {/* Cards */}
               <div className="flex flex-col gap-2 px-2 pb-2 min-h-[120px]">
-                {col
-                  .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-                  .map((task) => (
-                    <KanbanCard
-                      key={task.id}
-                      task={task}
-                      canEdit={canEdit}
-                      onEdit={() => setTaskModal({ open: true, task })}
-                      onDelete={() => setDeleteModal({ open: true, task })}
-                    />
-                  ))}
+                {col.map((task) => (
+                  <KanbanCard
+                    key={task.id}
+                    task={task}
+                    canEdit={canEdit}
+                    isDragging={draggingId === task.id}
+                    onEdit={() => openEdit(task)}
+                    onDelete={() => setDeleteModal({ open: true, task })}
+                    onDragStart={() => setDraggingId(task.id)}
+                    onDragEnd={() => { setDraggingId(null); setDragOverStatus(null); }}
+                  />
+                ))}
                 {col.length === 0 && (
                   <p className="text-xs text-text-muted text-center py-4">No tasks</p>
                 )}
@@ -99,7 +160,7 @@ export default function TasksKanban({ tasks, userType, projectId, type, onTrackQ
               {/* Add card button */}
               {canEdit && (
                 <button
-                  onClick={() => setTaskModal({ open: true, task: null })}
+                  onClick={openCreate}
                   className="flex items-center gap-1.5 px-3 py-2 text-xs text-text-muted hover:text-text-secondary transition-colors border-t border-border"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -115,6 +176,7 @@ export default function TasksKanban({ tasks, userType, projectId, type, onTrackQ
 
       {/* Modals */}
       <TaskModal
+        key={modalKey}
         open={taskModal.open}
         onClose={() => setTaskModal({ open: false, task: null })}
         task={taskModal.task}
@@ -123,6 +185,7 @@ export default function TasksKanban({ tasks, userType, projectId, type, onTrackQ
         type={type}
         level="level_2"
         profiles={profiles}
+        currentUserId={currentUserId}
       />
       <ConfirmDeleteModal
         open={deleteModal.open}
@@ -135,9 +198,26 @@ export default function TasksKanban({ tasks, userType, projectId, type, onTrackQ
   );
 }
 
-function KanbanCard({ task, canEdit, onEdit, onDelete }: { task: Task; canEdit: boolean; onEdit: () => void; onDelete: () => void }) {
+function KanbanCard({
+  task, canEdit, isDragging, onEdit, onDelete, onDragStart, onDragEnd,
+}: {
+  task: Task;
+  canEdit: boolean;
+  isDragging: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
   return (
-    <div className="bg-elevated rounded-md border border-border p-3 group hover:border-accent/40 transition-colors">
+    <div
+      draggable={canEdit}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={`bg-elevated rounded-md border border-border p-3 group transition-colors select-none ${
+        canEdit ? "cursor-grab active:cursor-grabbing" : ""
+      } ${isDragging ? "opacity-40 scale-95" : "hover:border-accent/40"}`}
+    >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm text-text-primary leading-snug flex-1 min-w-0">
           {task.name ?? "Untitled"}
@@ -145,7 +225,7 @@ function KanbanCard({ task, canEdit, onEdit, onDelete }: { task: Task; canEdit: 
         {canEdit && (
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
             <button
-              onClick={onEdit}
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
               className="p-1 text-text-muted hover:text-text-primary transition-colors rounded"
               title="Edit"
             >
@@ -154,7 +234,7 @@ function KanbanCard({ task, canEdit, onEdit, onDelete }: { task: Task; canEdit: 
               </svg>
             </button>
             <button
-              onClick={onDelete}
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
               className="p-1 text-text-muted hover:text-red-400 transition-colors rounded"
               title="Delete"
             >

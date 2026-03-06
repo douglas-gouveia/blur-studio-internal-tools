@@ -12,11 +12,12 @@ interface DeveloperTasksProps {
   userType: UserType | null;
   projectId: string;
   profiles?: UserProfile[];
+  currentUserId: string;
 }
 
 const CHILD_LEVELS: Task["level"][] = ["level_2", "level_3", "level_4"];
 
-export default function DeveloperTasks({ tasks, userType, projectId, profiles = [] }: DeveloperTasksProps) {
+export default function DeveloperTasks({ tasks, userType, projectId, profiles = [], currentUserId }: DeveloperTasksProps) {
   const devTasks = tasks.filter((t) => t.type === "developer_tasks");
   const milestones = devTasks.filter((t) => t.level === "level_1" && !t.parent_task_id);
 
@@ -115,6 +116,7 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
         type="developer_tasks"
         level={taskModal.level ?? "level_1"}
         profiles={profiles}
+        currentUserId={currentUserId}
       />
 
       <TaskTimeTrackerModal

@@ -17,6 +17,7 @@ interface ProjectDetailProps {
   userType: UserType | null;
   initialTab: TabKey;
   profiles: UserProfile[];
+  currentUserId: string;
 }
 
 const PROGRESS_COLORS: Record<"green" | "yellow" | "red", string> = {
@@ -25,7 +26,7 @@ const PROGRESS_COLORS: Record<"green" | "yellow" | "red", string> = {
   red:    "bg-[#7f1d1d] text-[#fca5a5]",
 };
 
-export default function ProjectDetail({ project, tasks, userType, initialTab, profiles }: ProjectDetailProps) {
+export default function ProjectDetail({ project, tasks, userType, initialTab, profiles, currentUserId }: ProjectDetailProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const visibleTabs = getVisibleTabs(userType);
@@ -115,6 +116,7 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
             userType={userType}
             projectId={project.id}
             profiles={profiles}
+            currentUserId={currentUserId}
           />
         )}
         {activeTab === "client_requests" && (
@@ -124,6 +126,7 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
             projectId={project.id}
             type="client_requests"
             profiles={profiles}
+            currentUserId={currentUserId}
           />
         )}
         {activeTab === "qa_requests" && (
@@ -133,6 +136,7 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
             projectId={project.id}
             type="qa_requests"
             profiles={profiles}
+            currentUserId={currentUserId}
             onTrackQATime={() => setQaTrackerOpen(true)}
           />
         )}

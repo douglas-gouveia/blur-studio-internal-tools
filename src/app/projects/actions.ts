@@ -248,6 +248,33 @@ export async function deleteQATimeEntry(id: string): Promise<{ error?: string }>
   return {};
 }
 
+export async function getTaskComments(taskId: string) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("task_comment")
+    .select("id, task_id, project_id, owner_id, message, created_at, profiles(id, first_name, last_name, picture)")
+    .eq("task_id", taskId)
+    .order("created_at", { ascending: true });
+  return (data ?? []) as unknown as import("@/types/projects").TaskComment[];
+}
+
+export async function createTaskComment(
+  taskId: string,
+  projectId: string,
+  message: string
+): Promise<{ error?: string; id?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  const { data: row, error } = await supabase
+    .from("task_comment")
+    .insert({ task_id: taskId, project_id: projectId, owner_id: user.id, message })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+  return { id: row.id };
+}
+
 export async function getTaskTimeEntries(taskId: string) {
   const supabase = await createClient();
   const { data } = await supabase

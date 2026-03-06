@@ -209,6 +209,21 @@ export interface TimeTrack {
   } | null;
 }
 
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  project_id: string;
+  owner_id: string;
+  message: string;
+  created_at: string;
+  profiles?: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    picture: string | null;
+  } | null;
+}
+
 export interface QATimeTrack {
   id: string;
   owner_user_id: string | null;
