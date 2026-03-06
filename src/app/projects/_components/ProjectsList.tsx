@@ -140,12 +140,19 @@ export default function ProjectsList({ projects, userType, profiles }: ProjectsL
                     {(project.name ?? "?")[0]?.toUpperCase()}
                   </div>
                 )}
-                <Link
-                  href={`/projects?project=${project.id}`}
-                  className="text-sm font-medium text-text-primary hover:text-accent transition-colors truncate"
-                >
-                  {project.name ?? "Untitled"}
-                </Link>
+                <div className="min-w-0">
+                  <Link
+                    href={`/projects?project=${project.id}`}
+                    className="text-sm font-medium text-text-primary hover:text-accent transition-colors truncate block"
+                  >
+                    {project.name ?? "Untitled"}
+                  </Link>
+                  {project.description && (
+                    <p className="text-[11px] text-text-muted truncate leading-tight mt-0.5">
+                      {project.description}
+                    </p>
+                  )}
+                </div>
               </div>
 
               <span className={`status-badge text-[10px] ${STATUS_COLORS[project.status]}`}>

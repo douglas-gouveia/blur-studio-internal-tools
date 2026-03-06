@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { Project, Task, UserType, TabKey, UserProfile } from "@/types/projects";
 import { getVisibleTabs, TAB_LABELS, getProgressBadge } from "@/types/projects";
@@ -25,11 +26,20 @@ const PROGRESS_COLORS: Record<"green" | "yellow" | "red", string> = {
 };
 
 export default function ProjectDetail({ project, tasks, userType, initialTab, profiles }: ProjectDetailProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const visibleTabs = getVisibleTabs(userType);
   const defaultTab = visibleTabs.includes(initialTab) ? initialTab : visibleTabs[0];
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const [workingHoursOpen, setWorkingHoursOpen] = useState(false);
   const [qaTrackerOpen, setQaTrackerOpen] = useState(false);
+
+  function handleTabChange(tab: TabKey) {
+    setActiveTab(tab);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", tab);
+    router.push(`/projects?${params.toString()}`, { scroll: false });
+  }
 
   const progress = getProgressBadge(project.real_time, project.estimated_time);
   const milestones = tasks.filter((t) => t.type === "developer_tasks" && t.level === "level_1" && !t.parent_task_id);
@@ -75,7 +85,7 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
         {visibleTabs.map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => handleTabChange(tab)}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab
                 ? "border-accent text-text-primary"

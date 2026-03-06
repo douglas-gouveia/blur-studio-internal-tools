@@ -40,7 +40,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     const [{ data: projectData }, { data: tasksData }] = await Promise.all([
       supabase
         .from("project")
-        .select("id, name, picture, status, stage, start_date_real, end_date_real, estimated_time, real_time, authorized_users, created_at")
+        .select("id, name, picture, status, stage, program, description, price, referrer_commission, start_date_real, end_date_real, start_date_estimated, end_date_estimated, estimated_time, real_time, authorized_users, change_automatically_project_estimated_time, change_automatically_milestone_estimated_time, change_automatically_project_start_end_dates, change_automatically_milestone_start_end_dates, created_at")
         .eq("id", projectId)
         .single(),
       supabase
@@ -78,7 +78,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   // ── Projects list view ─────────────────────────────────────────────────────
   const { data: projectsData } = await supabase
     .from("project")
-    .select("id, name, picture, status, stage, start_date_real, end_date_real, estimated_time, real_time, authorized_users, created_at")
+    .select("id, name, picture, status, stage, program, description, price, referrer_commission, start_date_real, end_date_real, start_date_estimated, end_date_estimated, estimated_time, real_time, authorized_users, change_automatically_project_estimated_time, change_automatically_milestone_estimated_time, change_automatically_project_start_end_dates, change_automatically_milestone_start_end_dates, created_at")
     .order("created_at", { ascending: false });
 
   const projects = (projectsData ?? []) as unknown as Project[];
