@@ -248,6 +248,16 @@ export async function deleteQATimeEntry(id: string): Promise<{ error?: string }>
   return {};
 }
 
+export async function getTaskTimeEntries(taskId: string) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("time_track")
+    .select("id, owner_id, task_id, project_id, start_date, start_time_min, end_time_min, time_spent_h, profiles(id, first_name, last_name, picture)")
+    .eq("task_id", taskId)
+    .order("start_date", { ascending: true });
+  return (data ?? []) as unknown as import("@/types/projects").TimeTrack[];
+}
+
 // ── Talent ────────────────────────────────────────────────────────────────────
 
 export async function searchTalents(query: string): Promise<Talent[]> {

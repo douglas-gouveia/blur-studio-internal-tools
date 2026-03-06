@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Task, UserType, UserProfile } from "@/types/projects";
 import TaskModal from "../modals/TaskModal";
+import TaskTimeTrackerModal from "../modals/TaskTimeTrackerModal";
 import ConfirmDeleteModal from "../modals/ConfirmDeleteModal";
 import { deleteTask } from "../../actions";
 
@@ -13,10 +14,13 @@ interface DeveloperTasksProps {
   profiles?: UserProfile[];
 }
 
+const CHILD_LEVELS: Task["level"][] = ["level_2", "level_3", "level_4"];
+
 export default function DeveloperTasks({ tasks, userType, projectId, profiles = [] }: DeveloperTasksProps) {
   const devTasks = tasks.filter((t) => t.type === "developer_tasks");
-
   const milestones = devTasks.filter((t) => t.level === "level_1" && !t.parent_task_id);
+
+  // Build parent→children map
   const byParent = new Map<string, Task[]>();
   devTasks
     .filter((t) => t.parent_task_id)
@@ -28,6 +32,8 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
 
   const canEdit = userType === "admin" || userType === "manager" || userType === "developer";
 
+  // Use a key counter so the modal always remounts fresh (fixes stale state on create/edit)
+  const [modalKey, setModalKey] = useState(0);
   const [taskModal, setTaskModal] = useState<{
     open: boolean;
     task: Task | null;
@@ -37,13 +43,25 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
 
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
 
-  const openCreate = (parentTaskId: string | null, level: Task["level"]) =>
+  const [timeTrackerModal, setTimeTrackerModal] = useState<{
+    open: boolean;
+    taskId: string;
+    taskName: string;
+  }>({ open: false, taskId: "", taskName: "" });
+
+  const openCreate = (parentTaskId: string | null, level: Task["level"]) => {
+    setModalKey((k) => k + 1);
     setTaskModal({ open: true, task: null, parentTaskId, level });
+  };
 
-  const openEdit = (task: Task) =>
+  const openEdit = (task: Task) => {
+    setModalKey((k) => k + 1);
     setTaskModal({ open: true, task, parentTaskId: task.parent_task_id, level: task.level });
+  };
 
-  const openDelete = (task: Task) => setDeleteModal({ open: true, task });
+  const openTimeTracker = (task: Task) => {
+    setTimeTrackerModal({ open: true, taskId: task.id, taskName: task.name ?? "Task" });
+  };
 
   return (
     <div className="flex flex-col">
@@ -66,13 +84,12 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
           key={milestone.id}
           milestone={milestone}
           idx={idx + 1}
-          children={byParent.get(milestone.id) ?? []}
-          grandchildren={byParent}
+          byParent={byParent}
           canEdit={canEdit}
           onEdit={openEdit}
-          onDelete={openDelete}
-          onAddTask={(parentId) => openCreate(parentId, "level_2")}
-          onAddSubTask={(parentId) => openCreate(parentId, "level_3")}
+          onDelete={(t) => setDeleteModal({ open: true, task: t })}
+          onAddChild={openCreate}
+          onOpenTimeTracker={openTimeTracker}
         />
       ))}
 
@@ -89,6 +106,7 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
       )}
 
       <TaskModal
+        key={modalKey}
         open={taskModal.open}
         onClose={() => setTaskModal((s) => ({ ...s, open: false }))}
         task={taskModal.task}
@@ -98,6 +116,15 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
         level={taskModal.level ?? "level_1"}
         profiles={profiles}
       />
+
+      <TaskTimeTrackerModal
+        open={timeTrackerModal.open}
+        onClose={() => setTimeTrackerModal((s) => ({ ...s, open: false }))}
+        taskId={timeTrackerModal.taskId}
+        projectId={projectId}
+        taskName={timeTrackerModal.taskName}
+      />
+
       <ConfirmDeleteModal
         open={deleteModal.open}
         onClose={() => setDeleteModal({ open: false, task: null })}
@@ -112,19 +139,19 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
 // ── Milestone row ─────────────────────────────────────────────────────────────
 
 function MilestoneRow({
-  milestone, idx, children, grandchildren, canEdit, onEdit, onDelete, onAddTask, onAddSubTask,
+  milestone, idx, byParent, canEdit, onEdit, onDelete, onAddChild, onOpenTimeTracker,
 }: {
   milestone: Task;
   idx: number;
-  children: Task[];
-  grandchildren: Map<string, Task[]>;
+  byParent: Map<string, Task[]>;
   canEdit: boolean;
   onEdit: (t: Task) => void;
   onDelete: (t: Task) => void;
-  onAddTask: (parentId: string) => void;
-  onAddSubTask: (parentId: string) => void;
+  onAddChild: (parentId: string, level: Task["level"]) => void;
+  onOpenTimeTracker: (t: Task) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const children = (byParent.get(milestone.id) ?? []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
   return (
     <>
@@ -147,30 +174,29 @@ function MilestoneRow({
         <DateCell value={milestone.start_date_real ?? milestone.start_date_estimated} />
         <DateCell value={milestone.end_date_real ?? milestone.end_date_estimated} />
         <NumCell value={milestone.estimated_time} />
-        <NumCell value={milestone.real_time} />
+        <RealTimeCell value={milestone.real_time} onClick={() => onOpenTimeTracker(milestone)} />
         <Assignees assignees={milestone.task_assignees} />
         <RowActions canEdit={canEdit} onEdit={() => onEdit(milestone)} onDelete={() => onDelete(milestone)} />
       </div>
 
       {expanded && (
         <>
-          {children
-            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-            .map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                depth={1}
-                grandchildren={grandchildren.get(task.id) ?? []}
-                canEdit={canEdit}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onAddSubTask={onAddSubTask}
-              />
-            ))}
+          {children.map((task) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              depth={1}
+              byParent={byParent}
+              canEdit={canEdit}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onAddChild={onAddChild}
+              onOpenTimeTracker={onOpenTimeTracker}
+            />
+          ))}
           {canEdit && (
             <button
-              onClick={() => onAddTask(milestone.id)}
+              onClick={() => onAddChild(milestone.id, "level_2")}
               className="flex items-center gap-2 py-2 text-xs text-text-muted hover:text-text-secondary transition-colors border-b border-border/50"
               style={{ paddingLeft: `${16 + 24}px` }}
             >
@@ -186,20 +212,24 @@ function MilestoneRow({
   );
 }
 
-// ── Task row ──────────────────────────────────────────────────────────────────
+// ── Task row (recursive) ───────────────────────────────────────────────────────
 
 function TaskRow({
-  task, depth, grandchildren, canEdit, onEdit, onDelete, onAddSubTask,
+  task, depth, byParent, canEdit, onEdit, onDelete, onAddChild, onOpenTimeTracker,
 }: {
   task: Task;
-  depth: number;
-  grandchildren: Task[];
+  depth: number; // 1 = level_2, 2 = level_3, 3 = level_4
+  byParent: Map<string, Task[]>;
   canEdit: boolean;
   onEdit: (t: Task) => void;
   onDelete: (t: Task) => void;
-  onAddSubTask: (parentId: string) => void;
+  onAddChild: (parentId: string, level: Task["level"]) => void;
+  onOpenTimeTracker: (t: Task) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const children = (byParent.get(task.id) ?? []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const hasChildren = children.length > 0;
+  const childLevel = CHILD_LEVELS[depth] as Task["level"] | undefined; // next level
 
   return (
     <>
@@ -208,7 +238,7 @@ function TaskRow({
         style={{ paddingLeft: `${16 + depth * 24}px` }}
       >
         <div className="flex items-center gap-2">
-          {grandchildren.length > 0 ? (
+          {hasChildren ? (
             <button
               onClick={() => setExpanded((v) => !v)}
               className="w-4 h-4 shrink-0 text-text-muted hover:text-text-primary transition-transform"
@@ -227,30 +257,30 @@ function TaskRow({
         <DateCell value={task.start_date_real ?? task.start_date_estimated} />
         <DateCell value={task.end_date_real ?? task.end_date_estimated} />
         <NumCell value={task.estimated_time} />
-        <NumCell value={task.real_time} />
+        <RealTimeCell value={task.real_time} onClick={() => onOpenTimeTracker(task)} />
         <Assignees assignees={task.task_assignees} />
         <RowActions canEdit={canEdit} onEdit={() => onEdit(task)} onDelete={() => onDelete(task)} />
       </div>
 
-      {expanded && (
+      {(expanded || hasChildren) && expanded && (
         <>
-          {grandchildren
-            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-            .map((sub) => (
-              <TaskRow
-                key={sub.id}
-                task={sub}
-                depth={depth + 1}
-                grandchildren={[]}
-                canEdit={canEdit}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onAddSubTask={onAddSubTask}
-              />
-            ))}
-          {canEdit && depth === 1 && (
+          {children.map((child) => (
+            <TaskRow
+              key={child.id}
+              task={child}
+              depth={depth + 1}
+              byParent={byParent}
+              canEdit={canEdit}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onAddChild={onAddChild}
+              onOpenTimeTracker={onOpenTimeTracker}
+            />
+          ))}
+          {/* Show "Add sub-task" button as long as there's a next level */}
+          {canEdit && childLevel && (
             <button
-              onClick={() => onAddSubTask(task.id)}
+              onClick={() => onAddChild(task.id, childLevel)}
               className="flex items-center gap-2 py-2 text-xs text-text-muted hover:text-text-secondary transition-colors border-b border-border/50"
               style={{ paddingLeft: `${16 + (depth + 1) * 24}px` }}
             >
@@ -297,6 +327,18 @@ function DateCell({ value }: { value: string | null | undefined }) {
 
 function NumCell({ value }: { value: number | null | undefined }) {
   return <span className="text-xs text-text-secondary">{value != null ? value.toFixed(2) : "0.00"}</span>;
+}
+
+function RealTimeCell({ value, onClick }: { value: number | null | undefined; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-xs text-text-secondary hover:text-accent transition-colors text-left"
+      title="View time tracker"
+    >
+      {value != null ? value.toFixed(2) : "0.00"}
+    </button>
+  );
 }
 
 function Assignees({ assignees }: { assignees: Task["task_assignees"] }) {
