@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Task, UserType, UserProfile } from "@/types/projects";
 import TaskModal from "../modals/TaskModal";
@@ -41,15 +41,17 @@ export default function TasksKanban({
   const [, startTransition] = useTransition();
   const canEdit = userType === "admin" || userType === "manager" || userType === "developer" || userType === "qa";
 
-  const [taskModal, setTaskModal] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
-  const [deleteModal, setDeleteModal] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
+  // Store only IDs — derive task objects from localTasks at render time to avoid stale data
+  const [taskModal, setTaskModal] = useState<{ open: boolean; taskId: string | null }>({ open: false, taskId: null });
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; taskId: string | null }>({ open: false, taskId: null });
   const [modalKey, setModalKey] = useState(0);
 
   // Local tasks for optimistic drag-drop updates
   const [localTasks, setLocalTasks] = useState<Task[]>(() => tasks.filter((t) => t.type === type));
   useEffect(() => { setLocalTasks(tasks.filter((t) => t.type === type)); }, [tasks, type]);
 
-  // Drag state
+  // Drag state — ref for the dragging ID so state update doesn't cancel the drag
+  const draggingIdRef = useRef<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<Task["status"] | null>(null);
 
@@ -61,20 +63,24 @@ export default function TasksKanban({
     byStatus.set(t.status, col);
   });
 
+  // Derive task objects from localTasks so they're always fresh
+  const modalTask = taskModal.taskId ? (localTasks.find((t) => t.id === taskModal.taskId) ?? null) : null;
+  const deleteTask_ = deleteModal.taskId ? (localTasks.find((t) => t.id === deleteModal.taskId) ?? null) : null;
+
   function openCreate() {
     setModalKey((k) => k + 1);
-    setTaskModal({ open: true, task: null });
+    setTaskModal({ open: true, taskId: null });
   }
 
-  function openEdit(task: Task) {
+  function openEdit(taskId: string) {
     setModalKey((k) => k + 1);
-    setTaskModal({ open: true, task });
+    setTaskModal({ open: true, taskId });
   }
 
-  function handleDrop(targetStatus: Task["status"]) {
-    if (!draggingId) return;
-    const task = localTasks.find((t) => t.id === draggingId);
+  function handleDrop(targetStatus: Task["status"], taskId: string) {
+    const task = localTasks.find((t) => t.id === taskId);
     if (!task || task.status === targetStatus) {
+      draggingIdRef.current = null;
       setDraggingId(null);
       setDragOverStatus(null);
       return;
@@ -84,13 +90,14 @@ export default function TasksKanban({
 
     // Optimistic update
     setLocalTasks((prev) =>
-      prev.map((t) => t.id === draggingId ? { ...t, status: targetStatus, order: newOrder } : t)
+      prev.map((t) => t.id === taskId ? { ...t, status: targetStatus, order: newOrder } : t)
     );
+    draggingIdRef.current = null;
     setDraggingId(null);
     setDragOverStatus(null);
 
     startTransition(async () => {
-      await updateTask(draggingId, { status: targetStatus, order: newOrder });
+      await updateTask(taskId, { status: targetStatus, order: newOrder });
       router.refresh();
     });
   }
@@ -121,12 +128,15 @@ export default function TasksKanban({
               className={`flex flex-col gap-2 min-w-[220px] max-w-[220px] rounded-lg border border-border border-t-2 transition-colors ${COLUMN_ACCENT[key]} ${isOver ? "bg-muted/60" : "bg-surface"}`}
               onDragOver={(e) => { e.preventDefault(); setDragOverStatus(key); }}
               onDragLeave={(e) => {
-                // Only clear if leaving the column itself, not a child
                 if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                   setDragOverStatus(null);
                 }
               }}
-              onDrop={() => handleDrop(key)}
+              onDrop={(e) => {
+                e.preventDefault();
+                const taskId = e.dataTransfer.getData("taskId");
+                if (taskId) handleDrop(key, taskId);
+              }}
             >
               {/* Column header */}
               <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
@@ -146,10 +156,20 @@ export default function TasksKanban({
                     task={task}
                     canEdit={canEdit}
                     isDragging={draggingId === task.id}
-                    onEdit={() => openEdit(task)}
-                    onDelete={() => setDeleteModal({ open: true, task })}
-                    onDragStart={() => setDraggingId(task.id)}
-                    onDragEnd={() => { setDraggingId(null); setDragOverStatus(null); }}
+                    onEdit={() => openEdit(task.id)}
+                    onDelete={() => setDeleteModal({ open: true, taskId: task.id })}
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("taskId", task.id);
+                      draggingIdRef.current = task.id;
+                      // Defer state update so React doesn't re-render during drag init
+                      setTimeout(() => setDraggingId(task.id), 0);
+                    }}
+                    onDragEnd={() => {
+                      draggingIdRef.current = null;
+                      setDraggingId(null);
+                      setDragOverStatus(null);
+                    }}
                   />
                 ))}
                 {col.length === 0 && (
@@ -178,8 +198,8 @@ export default function TasksKanban({
       <TaskModal
         key={modalKey}
         open={taskModal.open}
-        onClose={() => setTaskModal({ open: false, task: null })}
-        task={taskModal.task}
+        onClose={() => setTaskModal({ open: false, taskId: null })}
+        task={modalTask}
         projectId={projectId}
         parentTaskId={null}
         type={type}
@@ -189,10 +209,10 @@ export default function TasksKanban({
       />
       <ConfirmDeleteModal
         open={deleteModal.open}
-        onClose={() => setDeleteModal({ open: false, task: null })}
+        onClose={() => setDeleteModal({ open: false, taskId: null })}
         kind="task"
-        itemName={deleteModal.task?.name ?? ""}
-        onConfirm={() => deleteTask(deleteModal.task!.id)}
+        itemName={deleteTask_?.name ?? ""}
+        onConfirm={() => deleteTask(deleteModal.taskId!)}
       />
     </div>
   );
@@ -206,7 +226,7 @@ function KanbanCard({
   isDragging: boolean;
   onEdit: () => void;
   onDelete: () => void;
-  onDragStart: () => void;
+  onDragStart: (e: React.DragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
 }) {
   return (
