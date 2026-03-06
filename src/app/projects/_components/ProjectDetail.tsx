@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { Project, Task, UserType, TabKey, UserProfile } from "@/types/projects";
-import { getVisibleTabs, TAB_LABELS, getProgressBadge } from "@/types/projects";
+import { getVisibleTabs, TAB_LABELS, getScheduleProgressBadge } from "@/types/projects";
 import StagesChecking from "./tabs/StagesChecking";
 import DeveloperTasks from "./tabs/DeveloperTasks";
 import TasksKanban from "./tabs/TasksKanban";
@@ -41,7 +41,11 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
     router.push(`/projects?${params.toString()}`, { scroll: false });
   }
 
-  const progress = getProgressBadge(project.real_time, project.estimated_time);
+  const totalEst = tasks.reduce((sum, t) => sum + (t.estimated_time ?? 0), 0);
+  const doneOrQaEst = tasks
+    .filter((t) => t.status === "done" || t.status === "ready_for_qa")
+    .reduce((sum, t) => sum + (t.estimated_time ?? 0), 0);
+  const progress = getScheduleProgressBadge(project, { totalEst, doneOrQaEst });
   const milestones = tasks.filter((t) => t.type === "developer_tasks" && t.level === "level_1" && !t.parent_task_id);
 
   return (

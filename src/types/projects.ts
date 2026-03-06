@@ -40,6 +40,46 @@ export type UserType =
   | "referrer"
   | "lead";
 
+export type TalentLevel =
+  | "agency_owner"
+  | "cto"
+  | "tech_lead"
+  | "senior"
+  | "mid_level"
+  | "junior";
+
+export type TalentAuthorityLevel =
+  | "rock_star"
+  | "known"
+  | "unknown"
+  | "rising_star"
+  | "explorer";
+
+export const TALENT_LEVEL_LABELS: Record<TalentLevel, string> = {
+  agency_owner: "Agency / Company Owner (CEO)",
+  cto:          "CTO",
+  tech_lead:    "Tech Lead",
+  senior:       "Senior",
+  mid_level:    "Mid-Level",
+  junior:       "Junior",
+};
+
+export const TALENT_AUTHORITY_LEVEL_LABELS: Record<TalentAuthorityLevel, string> = {
+  rock_star:   "Rock Star",
+  known:       "Known (Champion)",
+  unknown:     "Unknown (Builder Pro)",
+  rising_star: "Rising Star",
+  explorer:    "Explorer",
+};
+
+export interface Talent {
+  id: string;
+  name: string | null;
+  email: string | null;
+  level: TalentLevel | null;
+  current_company_id: string | null;
+}
+
 export type ProjectProgram =
   | "sandbox_launch"
   | "market_ready_product"
@@ -147,6 +187,8 @@ export interface Project {
   change_automatically_milestone_estimated_time: boolean;
   change_automatically_project_start_end_dates: boolean;
   change_automatically_milestone_start_end_dates: boolean;
+  talent_who_recommended_id: string | null;
+  company_that_recommended_id: string | null;
   created_at: string;
 }
 
@@ -256,6 +298,32 @@ export const TAB_LABELS: Record<TabKey, string> = {
   client_requests: "Client Requests",
   qa_requests: "QA Requests",
 };
+
+/** Task-based + timeline schedule progress badge */
+export function getScheduleProgressBadge(
+  project: { start_date_estimated: string | null; end_date_estimated: string | null },
+  taskProgress: { totalEst: number; doneOrQaEst: number } | null
+): { label: string; color: "green" | "yellow" | "red" } {
+  const totalEst = taskProgress?.totalEst ?? 0;
+  const doneOrQaEst = taskProgress?.doneOrQaEst ?? 0;
+
+  if (!project.start_date_estimated || !project.end_date_estimated) {
+    return { label: "No estimate", color: "yellow" };
+  }
+
+  const taskPct = totalEst > 0 ? (doneOrQaEst / totalEst) * 100 : 0;
+
+  const start = new Date(project.start_date_estimated).getTime();
+  const end   = new Date(project.end_date_estimated).getTime();
+  const today = Date.now();
+  const span  = end - start;
+  const timelinePct = span > 0 ? ((today - start) / span) * 100 : 0;
+
+  const diff = Math.round(taskPct - timelinePct);
+  if (diff > 0)  return { label: `${diff}% Ahead`,   color: "green" };
+  if (diff < 0)  return { label: `${Math.abs(diff)}% Behind`, color: "red" };
+  return { label: "On Schedule", color: "yellow" };
+}
 
 export function getVisibleTabs(userType: UserType | null): TabKey[] {
   if (!userType) return ["stages"];

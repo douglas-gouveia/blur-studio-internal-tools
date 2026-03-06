@@ -9,6 +9,9 @@ import type {
   TaskStatus,
   TaskType,
   TaskLevel,
+  Talent,
+  TalentLevel,
+  TalentAuthorityLevel,
 } from "@/types/projects";
 
 // ── Project CRUD ──────────────────────────────────────────────────────────────
@@ -31,6 +34,8 @@ export interface ProjectInput {
   change_automatically_milestone_estimated_time: boolean;
   change_automatically_project_start_end_dates: boolean;
   change_automatically_milestone_start_end_dates: boolean;
+  talent_who_recommended_id: string | null;
+  company_that_recommended_id: string | null;
 }
 
 export async function createProject(data: ProjectInput): Promise<{ error?: string; id?: string }> {
@@ -240,4 +245,70 @@ export async function deleteQATimeEntry(id: string): Promise<{ error?: string }>
   if (error) return { error: error.message };
   revalidatePath("/projects");
   return {};
+}
+
+// ── Talent ────────────────────────────────────────────────────────────────────
+
+export async function searchTalents(query: string): Promise<Talent[]> {
+  if (!query.trim()) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("talent")
+    .select("id, name, email, level, current_company_id")
+    .ilike("name", `%${query.trim()}%`)
+    .limit(10);
+  return (data ?? []) as unknown as Talent[];
+}
+
+export async function getTalentById(id: string): Promise<Talent | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("talent")
+    .select("id, name, email, level, current_company_id")
+    .eq("id", id)
+    .single();
+  return (data ?? null) as unknown as Talent | null;
+}
+
+export interface TalentInput {
+  name: string;
+  email: string | null;
+  level: TalentLevel | null;
+  authority_level: TalentAuthorityLevel | null;
+  current_company_id: string | null;
+}
+
+export async function createTalent(data: TalentInput): Promise<{ error?: string; id?: string; talent?: Talent }> {
+  const supabase = await createClient();
+  const { data: row, error } = await supabase
+    .from("talent")
+    .insert(data)
+    .select("id, name, email, level, current_company_id")
+    .single();
+  if (error) return { error: error.message };
+  return { id: (row as any).id, talent: row as unknown as Talent };
+}
+
+// ── Company ───────────────────────────────────────────────────────────────────
+
+export async function searchCompanies(query: string): Promise<{ id: string; name: string }[]> {
+  if (!query.trim()) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("company")
+    .select("id, name")
+    .ilike("name", `%${query.trim()}%`)
+    .limit(10);
+  return (data ?? []) as { id: string; name: string }[];
+}
+
+export async function createCompany(name: string, website?: string | null): Promise<{ error?: string; id?: string }> {
+  const supabase = await createClient();
+  const { data: row, error } = await supabase
+    .from("company")
+    .insert({ name, website: website ?? null })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+  return { id: row.id };
 }

@@ -5,6 +5,8 @@ import Sidebar from "@/components/layout/Sidebar";
 import ProjectsList from "./_components/ProjectsList";
 import ProjectDetail from "./_components/ProjectDetail";
 
+type TaskProgress = { totalEst: number; doneOrQaEst: number; doneEst: number };
+
 interface PageProps {
   searchParams: Promise<{ project?: string; tab?: string }>;
 }
@@ -40,7 +42,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     const [{ data: projectData }, { data: tasksData }] = await Promise.all([
       supabase
         .from("project")
-        .select("id, name, picture, status, stage, program, description, price, referrer_commission, start_date_real, end_date_real, start_date_estimated, end_date_estimated, estimated_time, real_time, authorized_users, change_automatically_project_estimated_time, change_automatically_milestone_estimated_time, change_automatically_project_start_end_dates, change_automatically_milestone_start_end_dates, created_at")
+        .select("id, name, picture, status, stage, program, description, price, referrer_commission, start_date_real, end_date_real, start_date_estimated, end_date_estimated, estimated_time, real_time, authorized_users, change_automatically_project_estimated_time, change_automatically_milestone_estimated_time, change_automatically_project_start_end_dates, change_automatically_milestone_start_end_dates, talent_who_recommended_id, company_that_recommended_id, created_at")
         .eq("id", projectId)
         .single(),
       supabase
@@ -76,12 +78,34 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   }
 
   // ── Projects list view ─────────────────────────────────────────────────────
-  const { data: projectsData } = await supabase
-    .from("project")
-    .select("id, name, picture, status, stage, program, description, price, referrer_commission, start_date_real, end_date_real, start_date_estimated, end_date_estimated, estimated_time, real_time, authorized_users, change_automatically_project_estimated_time, change_automatically_milestone_estimated_time, change_automatically_project_start_end_dates, change_automatically_milestone_start_end_dates, created_at")
-    .order("created_at", { ascending: false });
+  const [{ data: projectsData }, { data: taskAggData }] = await Promise.all([
+    supabase
+      .from("project")
+      .select("id, name, picture, status, stage, program, description, price, referrer_commission, start_date_real, end_date_real, start_date_estimated, end_date_estimated, estimated_time, real_time, authorized_users, change_automatically_project_estimated_time, change_automatically_milestone_estimated_time, change_automatically_project_start_end_dates, change_automatically_milestone_start_end_dates, talent_who_recommended_id, company_that_recommended_id, created_at")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("task")
+      .select("project_id, status, estimated_time")
+      .not("project_id", "is", null),
+  ]);
 
   const projects = (projectsData ?? []) as unknown as Project[];
+
+  const taskProgressMap: Record<string, TaskProgress> = {};
+  for (const t of (taskAggData ?? []) as { project_id: string; status: string; estimated_time: number | null }[]) {
+    if (!t.project_id) continue;
+    if (!taskProgressMap[t.project_id]) {
+      taskProgressMap[t.project_id] = { totalEst: 0, doneOrQaEst: 0, doneEst: 0 };
+    }
+    const est = t.estimated_time ?? 0;
+    taskProgressMap[t.project_id].totalEst += est;
+    if (t.status === "done" || t.status === "ready_for_qa") {
+      taskProgressMap[t.project_id].doneOrQaEst += est;
+    }
+    if (t.status === "done") {
+      taskProgressMap[t.project_id].doneEst += est;
+    }
+  }
 
   return (
     <div className="flex h-screen bg-base overflow-hidden">
@@ -93,7 +117,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
           <span className="text-xs text-text-muted">{projects.length} project{projects.length !== 1 ? "s" : ""}</span>
         </div>
 
-        <ProjectsList projects={projects} userType={userType} profiles={profiles} />
+        <ProjectsList projects={projects} userType={userType} profiles={profiles} taskProgressMap={taskProgressMap} />
       </main>
     </div>
   );
