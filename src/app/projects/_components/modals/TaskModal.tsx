@@ -36,6 +36,8 @@ interface TaskModalProps {
   /** Existing time track entries for this task */
   timeEntries?: TimeTrack[];
   currentUserId: string;
+  /** Available milestones for client/qa_requests task creation */
+  milestones?: Task[];
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -72,6 +74,7 @@ export default function TaskModal({
   profiles,
   timeEntries = [],
   currentUserId,
+  milestones = [],
 }: TaskModalProps) {
   const router = useRouter();
   const isEdit = !!task;
@@ -89,6 +92,11 @@ export default function TaskModal({
   const [description, setDescription] = useState("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>(
     task?.task_assignees?.map((a) => a.user_id) ?? []
+  );
+  // Milestone picker for client/qa requests
+  const showMilestonePicker = !isEdit && (type === "client_requests" || type === "qa_requests") && milestones.length > 0;
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string>(
+    parentTaskId ?? milestones[0]?.id ?? ""
   );
 
   // Local time entries state
@@ -153,7 +161,7 @@ export default function TaskModal({
       const taskPayload: TaskInput = {
         name: name.trim(),
         project_id: projectId,
-        parent_task_id: parentTaskId ?? null,
+        parent_task_id: showMilestonePicker ? (selectedMilestoneId || null) : (parentTaskId ?? null),
         type,
         level,
         status,
@@ -177,7 +185,7 @@ export default function TaskModal({
       }
 
       for (const id of deletedIds) {
-        await deleteTimeEntry(id);
+        await deleteTimeEntry(id, projectId);
       }
 
       for (const entry of entries) {
@@ -234,6 +242,22 @@ export default function TaskModal({
             placeholder="Task name"
           />
         </div>
+
+        {/* Milestone picker for client/qa requests */}
+        {showMilestonePicker && (
+          <div>
+            <label className="text-xs font-medium text-text-secondary mb-1 block">Milestone</label>
+            <select
+              value={selectedMilestoneId}
+              onChange={(e) => setSelectedMilestoneId(e.target.value)}
+              className="input-field"
+            >
+              {milestones.map((m) => (
+                <option key={m.id} value={m.id}>{m.name ?? "Untitled Milestone"}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Status + Assignees */}
         <div className="grid grid-cols-2 gap-4">

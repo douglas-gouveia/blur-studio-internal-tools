@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import type { Project, Task, UserType, TabKey, UserProfile } from "@/types/projects";
+import type { Project, Task, UserType, TabKey, UserProfile, ClientMilestoneTotal, QAMilestoneTotal } from "@/types/projects";
 import { getVisibleTabs, TAB_LABELS, getScheduleProgressBadge } from "@/types/projects";
 import StagesChecking from "./tabs/StagesChecking";
 import DeveloperTasks from "./tabs/DeveloperTasks";
@@ -18,6 +18,8 @@ interface ProjectDetailProps {
   initialTab: TabKey;
   profiles: UserProfile[];
   currentUserId: string;
+  clientMilestoneTotals: ClientMilestoneTotal[];
+  qaMilestoneTotals: QAMilestoneTotal[];
 }
 
 const PROGRESS_COLORS: Record<"green" | "yellow" | "red", string> = {
@@ -26,7 +28,7 @@ const PROGRESS_COLORS: Record<"green" | "yellow" | "red", string> = {
   red:    "bg-[#7f1d1d] text-[#fca5a5]",
 };
 
-export default function ProjectDetail({ project, tasks, userType, initialTab, profiles, currentUserId }: ProjectDetailProps) {
+export default function ProjectDetail({ project, tasks, userType, initialTab, profiles, currentUserId, clientMilestoneTotals, qaMilestoneTotals }: ProjectDetailProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const visibleTabs = getVisibleTabs(userType);
@@ -48,6 +50,22 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
     .reduce((sum, t) => sum + (t.estimated_time ?? 0), 0);
   const progress = getScheduleProgressBadge(project, { totalEst, doneOrQaEst });
   const milestones = tasks.filter((t) => t.type === "developer_tasks" && t.level === "level_1" && !t.parent_task_id);
+
+  // Tab badge counts
+  const clientNotStarted = tasks.filter((t) => t.type === "client_requests" && t.status === "not_started").length;
+  const qaNotStarted = tasks.filter((t) => t.type === "qa_requests" && t.status === "not_started").length;
+  const qaReadyForQa = tasks.filter((t) => t.type === "qa_requests" && t.status === "ready_for_qa").length;
+
+  function getTabBadge(tab: TabKey): number {
+    if (tab === "client_requests" && (userType === "admin" || userType === "manager" || userType === "developer")) {
+      return clientNotStarted;
+    }
+    if (tab === "qa_requests") {
+      if (userType === "qa") return qaReadyForQa;
+      if (userType === "admin" || userType === "manager" || userType === "developer") return qaNotStarted;
+    }
+    return 0;
+  }
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -87,19 +105,27 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
 
       {/* Tab bar */}
       <div className="flex items-end gap-0 px-6 border-b border-border">
-        {visibleTabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => handleTabChange(tab)}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab
-                ? "border-accent text-text-primary"
-                : "border-transparent text-text-secondary hover:text-text-primary hover:border-border"
-            }`}
-          >
-            {TAB_LABELS[tab]}
-          </button>
-        ))}
+        {visibleTabs.map((tab) => {
+          const badge = getTabBadge(tab);
+          return (
+            <button
+              key={tab}
+              onClick={() => handleTabChange(tab)}
+              className={`relative px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab
+                  ? "border-accent text-text-primary"
+                  : "border-transparent text-text-secondary hover:text-text-primary hover:border-border"
+              }`}
+            >
+              {TAB_LABELS[tab]}
+              {badge > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none px-1">
+                  {badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab content */}
@@ -117,6 +143,8 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
             projectId={project.id}
             profiles={profiles}
             currentUserId={currentUserId}
+            clientMilestoneTotals={clientMilestoneTotals}
+            qaMilestoneTotals={qaMilestoneTotals}
           />
         )}
         {activeTab === "client_requests" && (
@@ -127,6 +155,7 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
             type="client_requests"
             profiles={profiles}
             currentUserId={currentUserId}
+            milestones={milestones}
           />
         )}
         {activeTab === "qa_requests" && (
@@ -138,6 +167,7 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
             profiles={profiles}
             currentUserId={currentUserId}
             onTrackQATime={() => setQaTrackerOpen(true)}
+            milestones={milestones}
           />
         )}
       </div>

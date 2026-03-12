@@ -242,6 +242,26 @@ export interface QATimeTrack {
   } | null;
 }
 
+// ── Milestone totals ──────────────────────────────────────────────────────────
+
+export interface ClientMilestoneTotal {
+  id: string;
+  project_id: string | null;
+  task_milestone_id: string | null;
+  estimated_time_h: number | null;
+  real_time_h: number | null;
+}
+
+export interface QAMilestoneTotal {
+  id: string;
+  project_id: string | null;
+  task_milestone_id: string | null;
+  developer_estimated_time_h: number | null;
+  developer_real_time_h: number | null;
+  qa_estimated_time_h: number | null;
+  qa_real_time_h: number | null;
+}
+
 // ── Time helpers ───────────────────────────────────────────────────────────────
 
 /** Convert minutes-from-midnight to "HH:MM" */
@@ -349,7 +369,7 @@ export function getVisibleTabs(userType: UserType | null): TabKey[] {
     return ["stages", "developer", "client_requests", "qa_requests"];
   }
   if (userType === "qa") {
-    return ["stages", "client_requests", "qa_requests"];
+    return ["qa_requests"];
   }
   if (userType === "client") {
     return ["stages", "client_requests"];

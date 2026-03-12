@@ -16,6 +16,7 @@ interface TasksKanbanProps {
   onTrackQATime?: () => void;
   profiles?: UserProfile[];
   currentUserId: string;
+  milestones?: Task[];
 }
 
 const COLUMNS: { key: Task["status"]; label: string }[] = [
@@ -35,7 +36,7 @@ const COLUMN_ACCENT: Record<Task["status"], string> = {
 };
 
 export default function TasksKanban({
-  tasks, userType, projectId, type, onTrackQATime, profiles = [], currentUserId,
+  tasks, userType, projectId, type, onTrackQATime, profiles = [], currentUserId, milestones = [],
 }: TasksKanbanProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -206,6 +207,7 @@ export default function TasksKanban({
         level="level_2"
         profiles={profiles}
         currentUserId={currentUserId}
+        milestones={milestones}
       />
       <ConfirmDeleteModal
         open={deleteModal.open}

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Project, Task, UserType, TabKey, UserProfile } from "@/types/projects";
+import type { Project, Task, UserType, TabKey, UserProfile, ClientMilestoneTotal, QAMilestoneTotal } from "@/types/projects";
 import Sidebar from "@/components/layout/Sidebar";
 import ProjectsList from "./_components/ProjectsList";
 import ProjectDetail from "./_components/ProjectDetail";
@@ -39,7 +39,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
 
   // ── Project detail view ────────────────────────────────────────────────────
   if (projectId) {
-    const [{ data: projectData }, { data: tasksData }] = await Promise.all([
+    const [{ data: projectData }, { data: tasksData }, { data: clientTotalsData }, { data: qaTotalsData }] = await Promise.all([
       supabase
         .from("project")
         .select("id, name, picture, status, stage, program, description, price, referrer_commission, start_date_real, end_date_real, start_date_estimated, end_date_estimated, estimated_time, real_time, authorized_users, change_automatically_project_estimated_time, change_automatically_milestone_estimated_time, change_automatically_project_start_end_dates, change_automatically_milestone_start_end_dates, talent_who_recommended_id, company_that_recommended_id, created_at")
@@ -49,6 +49,14 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
         .from("task")
         .select("id, project_id, parent_task_id, name, order, start_date_estimated, end_date_estimated, start_date_real, end_date_real, real_time, estimated_time, type, level, status, task_assignees(user_id, profiles(id, first_name, last_name, picture))")
         .eq("project_id", projectId),
+      supabase
+        .from("client_milestone_total")
+        .select("id, project_id, task_milestone_id, estimated_time_h, real_time_h")
+        .eq("project_id", projectId),
+      supabase
+        .from("qa_milestone_total")
+        .select("id, project_id, task_milestone_id, developer_estimated_time_h, developer_real_time_h, qa_estimated_time_h, qa_real_time_h")
+        .eq("project_id", projectId),
     ]);
 
     if (!projectData) {
@@ -57,6 +65,8 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
 
     const project = projectData as unknown as Project;
     const tasks = (tasksData ?? []) as unknown as Task[];
+    const clientMilestoneTotals = (clientTotalsData ?? []) as unknown as ClientMilestoneTotal[];
+    const qaMilestoneTotals = (qaTotalsData ?? []) as unknown as QAMilestoneTotal[];
 
     const validTabs: TabKey[] = ["stages", "developer", "client_requests", "qa_requests"];
     const initialTab: TabKey = validTabs.includes(tabParam as TabKey) ? (tabParam as TabKey) : "stages";
@@ -72,6 +82,8 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
             initialTab={initialTab}
             profiles={profiles}
             currentUserId={user.id}
+            clientMilestoneTotals={clientMilestoneTotals}
+            qaMilestoneTotals={qaMilestoneTotals}
           />
         </main>
       </div>

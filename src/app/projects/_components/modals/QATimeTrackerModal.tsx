@@ -105,7 +105,7 @@ export default function QATimeTrackerModal({
   const handleSave = () => {
     startTransition(async () => {
       for (const id of deletedIds) {
-        await deleteQATimeEntry(id);
+        await deleteQATimeEntry(id, projectId);
       }
       for (const entry of entries) {
         await upsertQATimeEntry({

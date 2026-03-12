@@ -74,7 +74,7 @@ export default function TaskTimeTrackerModal({
   const handleSave = () => {
     startTransition(async () => {
       for (const id of deletedIds) {
-        await deleteTimeEntry(id);
+        await deleteTimeEntry(id, projectId);
       }
       for (const entry of entries) {
         await upsertTimeEntry({

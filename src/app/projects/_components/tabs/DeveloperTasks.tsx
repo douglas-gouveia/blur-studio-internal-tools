@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import type { Task, UserType, UserProfile } from "@/types/projects";
+import { useState, useTransition, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import type { Task, TaskStatus, UserType, UserProfile, ClientMilestoneTotal, QAMilestoneTotal } from "@/types/projects";
 import TaskModal from "../modals/TaskModal";
 import TaskTimeTrackerModal from "../modals/TaskTimeTrackerModal";
 import ConfirmDeleteModal from "../modals/ConfirmDeleteModal";
-import { deleteTask } from "../../actions";
+import { deleteTask, updateTask, updateClientMilestoneTotal, updateQAMilestoneTotal } from "../../actions";
 
 interface DeveloperTasksProps {
   tasks: Task[];
@@ -13,27 +14,56 @@ interface DeveloperTasksProps {
   projectId: string;
   profiles?: UserProfile[];
   currentUserId: string;
+  clientMilestoneTotals?: ClientMilestoneTotal[];
+  qaMilestoneTotals?: QAMilestoneTotal[];
 }
 
 const CHILD_LEVELS: Task["level"][] = ["level_2", "level_3", "level_4"];
 
-export default function DeveloperTasks({ tasks, userType, projectId, profiles = [], currentUserId }: DeveloperTasksProps) {
+const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: "not_started", label: "Not Started" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "ready_for_qa", label: "Ready for QA" },
+  { value: "done", label: "Done" },
+  { value: "blocked", label: "Blocked" },
+];
+
+const STATUS_COLORS: Record<TaskStatus, string> = {
+  not_started: "bg-[#27272a] text-[#a1a1aa]",
+  in_progress: "bg-[#1d3f7a] text-[#93c5fd]",
+  ready_for_qa: "bg-[#4c1d95] text-[#d8b4fe]",
+  done: "bg-[#14532d] text-[#86efac]",
+  blocked: "bg-[#7f1d1d] text-[#fca5a5]",
+};
+
+export default function DeveloperTasks({
+  tasks, userType, projectId, profiles = [], currentUserId,
+  clientMilestoneTotals = [], qaMilestoneTotals = [],
+}: DeveloperTasksProps) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
   const devTasks = tasks.filter((t) => t.type === "developer_tasks");
   const milestones = devTasks.filter((t) => t.level === "level_1" && !t.parent_task_id);
 
-  // Build parent→children map
+  // Build parent→children map (include ALL task types for milestone children)
+  const allTasksByParent = new Map<string, Task[]>();
+  tasks.filter((t) => t.parent_task_id).forEach((t) => {
+    const arr = allTasksByParent.get(t.parent_task_id!) ?? [];
+    arr.push(t);
+    allTasksByParent.set(t.parent_task_id!, arr);
+  });
+
+  // Developer tasks only for tree display
   const byParent = new Map<string, Task[]>();
-  devTasks
-    .filter((t) => t.parent_task_id)
-    .forEach((t) => {
-      const arr = byParent.get(t.parent_task_id!) ?? [];
-      arr.push(t);
-      byParent.set(t.parent_task_id!, arr);
-    });
+  devTasks.filter((t) => t.parent_task_id).forEach((t) => {
+    const arr = byParent.get(t.parent_task_id!) ?? [];
+    arr.push(t);
+    byParent.set(t.parent_task_id!, arr);
+  });
 
   const canEdit = userType === "admin" || userType === "manager" || userType === "developer";
+  const canEditTotals = userType === "admin" || userType === "manager";
 
-  // Use a key counter so the modal always remounts fresh (fixes stale state on create/edit)
   const [modalKey, setModalKey] = useState(0);
   const [taskModal, setTaskModal] = useState<{
     open: boolean;
@@ -41,28 +71,39 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
     parentTaskId: string | null;
     level: Task["level"];
   }>({ open: false, task: null, parentTaskId: null, level: "level_1" });
-
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
-
   const [timeTrackerModal, setTimeTrackerModal] = useState<{
-    open: boolean;
-    taskId: string;
-    taskName: string;
+    open: boolean; taskId: string; taskName: string;
   }>({ open: false, taskId: "", taskName: "" });
 
   const openCreate = (parentTaskId: string | null, level: Task["level"]) => {
     setModalKey((k) => k + 1);
     setTaskModal({ open: true, task: null, parentTaskId, level });
   };
-
   const openEdit = (task: Task) => {
     setModalKey((k) => k + 1);
     setTaskModal({ open: true, task, parentTaskId: task.parent_task_id, level: task.level });
   };
-
   const openTimeTracker = (task: Task) => {
     setTimeTrackerModal({ open: true, taskId: task.id, taskName: task.name ?? "Task" });
   };
+
+  const inlineUpdate = (taskId: string, data: Partial<import("../../actions").TaskInput>) => {
+    startTransition(async () => {
+      await updateTask(taskId, data);
+      router.refresh();
+    });
+  };
+
+  // Build milestone total maps
+  const clientTotalMap = new Map<string, ClientMilestoneTotal>();
+  for (const ct of clientMilestoneTotals) {
+    if (ct.task_milestone_id) clientTotalMap.set(ct.task_milestone_id, ct);
+  }
+  const qaTotalMap = new Map<string, QAMilestoneTotal>();
+  for (const qt of qaMilestoneTotals) {
+    if (qt.task_milestone_id) qaTotalMap.set(qt.task_milestone_id, qt);
+  }
 
   return (
     <div className="flex flex-col">
@@ -87,10 +128,16 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
           idx={idx + 1}
           byParent={byParent}
           canEdit={canEdit}
+          canEditTotals={canEditTotals}
           onEdit={openEdit}
           onDelete={(t) => setDeleteModal({ open: true, task: t })}
           onAddChild={openCreate}
           onOpenTimeTracker={openTimeTracker}
+          onInlineUpdate={inlineUpdate}
+          projectId={projectId}
+          clientTotal={clientTotalMap.get(milestone.id)}
+          qaTotal={qaTotalMap.get(milestone.id)}
+          profiles={profiles}
         />
       ))}
 
@@ -118,7 +165,6 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
         profiles={profiles}
         currentUserId={currentUserId}
       />
-
       <TaskTimeTrackerModal
         open={timeTrackerModal.open}
         onClose={() => setTimeTrackerModal((s) => ({ ...s, open: false }))}
@@ -126,7 +172,6 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
         projectId={projectId}
         taskName={timeTrackerModal.taskName}
       />
-
       <ConfirmDeleteModal
         open={deleteModal.open}
         onClose={() => setDeleteModal({ open: false, task: null })}
@@ -141,16 +186,23 @@ export default function DeveloperTasks({ tasks, userType, projectId, profiles = 
 // ── Milestone row ─────────────────────────────────────────────────────────────
 
 function MilestoneRow({
-  milestone, idx, byParent, canEdit, onEdit, onDelete, onAddChild, onOpenTimeTracker,
+  milestone, idx, byParent, canEdit, canEditTotals, onEdit, onDelete, onAddChild,
+  onOpenTimeTracker, onInlineUpdate, projectId, clientTotal, qaTotal, profiles,
 }: {
   milestone: Task;
   idx: number;
   byParent: Map<string, Task[]>;
   canEdit: boolean;
+  canEditTotals: boolean;
   onEdit: (t: Task) => void;
   onDelete: (t: Task) => void;
   onAddChild: (parentId: string, level: Task["level"]) => void;
   onOpenTimeTracker: (t: Task) => void;
+  onInlineUpdate: (taskId: string, data: Record<string, unknown>) => void;
+  projectId: string;
+  clientTotal?: ClientMilestoneTotal;
+  qaTotal?: QAMilestoneTotal;
+  profiles: UserProfile[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const children = (byParent.get(milestone.id) ?? []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
@@ -172,12 +224,36 @@ function MilestoneRow({
             Milestone {idx}: {milestone.name}
           </span>
         </div>
-        <StatusBadge status={milestone.status} />
-        <DateCell value={milestone.start_date_real ?? milestone.start_date_estimated} />
-        <DateCell value={milestone.end_date_real ?? milestone.end_date_estimated} />
-        <NumCell value={milestone.estimated_time} />
+        {canEdit ? (
+          <InlineStatusSelect value={milestone.status} onChange={(v) => onInlineUpdate(milestone.id, { status: v })} />
+        ) : (
+          <StatusBadge status={milestone.status} />
+        )}
+        {canEdit ? (
+          <InlineDateInput value={milestone.start_date_estimated} onChange={(v) => onInlineUpdate(milestone.id, { start_date_estimated: v })} />
+        ) : (
+          <DateCell value={milestone.start_date_estimated} />
+        )}
+        {canEdit ? (
+          <InlineDateInput value={milestone.end_date_estimated} onChange={(v) => onInlineUpdate(milestone.id, { end_date_estimated: v })} />
+        ) : (
+          <DateCell value={milestone.end_date_estimated} />
+        )}
+        {canEdit ? (
+          <InlineNumberInput value={milestone.estimated_time} onChange={(v) => onInlineUpdate(milestone.id, { estimated_time: v })} />
+        ) : (
+          <NumCell value={milestone.estimated_time} />
+        )}
         <RealTimeCell value={milestone.real_time} onClick={() => onOpenTimeTracker(milestone)} />
-        <Assignees assignees={milestone.task_assignees} />
+        {canEdit ? (
+          <InlineAssignees
+            assignees={milestone.task_assignees}
+            profiles={profiles}
+            onChange={(ids) => onInlineUpdate(milestone.id, { assignee_ids: ids })}
+          />
+        ) : (
+          <Assignees assignees={milestone.task_assignees} />
+        )}
         <RowActions canEdit={canEdit} onEdit={() => onEdit(milestone)} onDelete={() => onDelete(milestone)} />
       </div>
 
@@ -194,6 +270,8 @@ function MilestoneRow({
               onDelete={onDelete}
               onAddChild={onAddChild}
               onOpenTimeTracker={onOpenTimeTracker}
+              onInlineUpdate={onInlineUpdate}
+              profiles={profiles}
             />
           ))}
           {canEdit && (
@@ -208,6 +286,32 @@ function MilestoneRow({
               Add task
             </button>
           )}
+
+          {/* 3 Static rows: Client Requests (Developer), QA Requests (Developer), QA Requests (QA Tester) */}
+          <StaticTotalRow
+            label="Client Requests (Developer)"
+            estimatedTime={clientTotal?.estimated_time_h ?? null}
+            realTime={clientTotal?.real_time_h ?? null}
+            canEditEst={canEditTotals}
+            onEstChange={(v) => updateClientMilestoneTotal(milestone.id, projectId, { estimated_time_h: v })}
+            depth={1}
+          />
+          <StaticTotalRow
+            label="QA Requests (Developer)"
+            estimatedTime={qaTotal?.developer_estimated_time_h ?? null}
+            realTime={qaTotal?.developer_real_time_h ?? null}
+            canEditEst={canEditTotals}
+            onEstChange={(v) => updateQAMilestoneTotal(milestone.id, projectId, { developer_estimated_time_h: v })}
+            depth={1}
+          />
+          <StaticTotalRow
+            label="QA Requests (QA Tester)"
+            estimatedTime={qaTotal?.qa_estimated_time_h ?? null}
+            realTime={qaTotal?.qa_real_time_h ?? null}
+            canEditEst={canEditTotals}
+            onEstChange={(v) => updateQAMilestoneTotal(milestone.id, projectId, { qa_estimated_time_h: v })}
+            depth={1}
+          />
         </>
       )}
     </>
@@ -217,21 +321,23 @@ function MilestoneRow({
 // ── Task row (recursive) ───────────────────────────────────────────────────────
 
 function TaskRow({
-  task, depth, byParent, canEdit, onEdit, onDelete, onAddChild, onOpenTimeTracker,
+  task, depth, byParent, canEdit, onEdit, onDelete, onAddChild, onOpenTimeTracker, onInlineUpdate, profiles,
 }: {
   task: Task;
-  depth: number; // 1 = level_2, 2 = level_3, 3 = level_4
+  depth: number;
   byParent: Map<string, Task[]>;
   canEdit: boolean;
   onEdit: (t: Task) => void;
   onDelete: (t: Task) => void;
   onAddChild: (parentId: string, level: Task["level"]) => void;
   onOpenTimeTracker: (t: Task) => void;
+  onInlineUpdate: (taskId: string, data: Record<string, unknown>) => void;
+  profiles: UserProfile[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const children = (byParent.get(task.id) ?? []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const hasChildren = children.length > 0;
-  const childLevel = CHILD_LEVELS[depth] as Task["level"] | undefined; // next level
+  const childLevel = CHILD_LEVELS[depth] as Task["level"] | undefined;
 
   return (
     <>
@@ -240,7 +346,7 @@ function TaskRow({
         style={{ paddingLeft: `${16 + depth * 24}px` }}
       >
         <div className="flex items-center gap-2">
-          {hasChildren ? (
+          {hasChildren || childLevel ? (
             <button
               onClick={() => setExpanded((v) => !v)}
               className="w-4 h-4 shrink-0 text-text-muted hover:text-text-primary transition-transform"
@@ -255,16 +361,40 @@ function TaskRow({
           )}
           <span className="text-sm text-text-primary truncate">{task.name}</span>
         </div>
-        <StatusBadge status={task.status} />
-        <DateCell value={task.start_date_real ?? task.start_date_estimated} />
-        <DateCell value={task.end_date_real ?? task.end_date_estimated} />
-        <NumCell value={task.estimated_time} />
+        {canEdit ? (
+          <InlineStatusSelect value={task.status} onChange={(v) => onInlineUpdate(task.id, { status: v })} />
+        ) : (
+          <StatusBadge status={task.status} />
+        )}
+        {canEdit ? (
+          <InlineDateInput value={task.start_date_estimated} onChange={(v) => onInlineUpdate(task.id, { start_date_estimated: v })} />
+        ) : (
+          <DateCell value={task.start_date_estimated} />
+        )}
+        {canEdit ? (
+          <InlineDateInput value={task.end_date_estimated} onChange={(v) => onInlineUpdate(task.id, { end_date_estimated: v })} />
+        ) : (
+          <DateCell value={task.end_date_estimated} />
+        )}
+        {canEdit ? (
+          <InlineNumberInput value={task.estimated_time} onChange={(v) => onInlineUpdate(task.id, { estimated_time: v })} />
+        ) : (
+          <NumCell value={task.estimated_time} />
+        )}
         <RealTimeCell value={task.real_time} onClick={() => onOpenTimeTracker(task)} />
-        <Assignees assignees={task.task_assignees} />
+        {canEdit ? (
+          <InlineAssignees
+            assignees={task.task_assignees}
+            profiles={profiles}
+            onChange={(ids) => onInlineUpdate(task.id, { assignee_ids: ids })}
+          />
+        ) : (
+          <Assignees assignees={task.task_assignees} />
+        )}
         <RowActions canEdit={canEdit} onEdit={() => onEdit(task)} onDelete={() => onDelete(task)} />
       </div>
 
-      {(expanded || hasChildren) && expanded && (
+      {expanded && (
         <>
           {children.map((child) => (
             <TaskRow
@@ -277,9 +407,10 @@ function TaskRow({
               onDelete={onDelete}
               onAddChild={onAddChild}
               onOpenTimeTracker={onOpenTimeTracker}
+              onInlineUpdate={onInlineUpdate}
+              profiles={profiles}
             />
           ))}
-          {/* Show "Add sub-task" button as long as there's a next level */}
           {canEdit && childLevel && (
             <button
               onClick={() => onAddChild(task.id, childLevel)}
@@ -298,24 +429,172 @@ function TaskRow({
   );
 }
 
-// ── Shared cells ──────────────────────────────────────────────────────────────
+// ── Static total row (Client Requests / QA Requests summary) ────────────────
 
-function StatusBadge({ status }: { status: Task["status"] }) {
-  const map: Record<Task["status"], string> = {
-    not_started:  "bg-[#27272a] text-[#a1a1aa]",
-    in_progress:  "bg-[#1d3f7a] text-[#93c5fd]",
-    ready_for_qa: "bg-[#4c1d95] text-[#d8b4fe]",
-    done:         "bg-[#14532d] text-[#86efac]",
-    blocked:      "bg-[#7f1d1d] text-[#fca5a5]",
+function StaticTotalRow({
+  label, estimatedTime, realTime, canEditEst, onEstChange, depth,
+}: {
+  label: string;
+  estimatedTime: number | null;
+  realTime: number | null;
+  canEditEst: boolean;
+  onEstChange: (value: number | null) => void;
+  depth: number;
+}) {
+  return (
+    <div
+      className="grid grid-cols-[1fr_120px_100px_100px_80px_80px_120px_64px] gap-2 px-4 py-2 border-b border-border/50 items-center bg-muted/20"
+      style={{ paddingLeft: `${16 + depth * 24}px` }}
+    >
+      <div className="flex items-center gap-2">
+        <span className="w-4 h-4 shrink-0" />
+        <span className="text-xs text-text-muted italic">{label}</span>
+      </div>
+      <span /> {/* Status - empty */}
+      <span /> {/* Start Date - empty */}
+      <span /> {/* End Date - empty */}
+      {canEditEst ? (
+        <InlineNumberInput value={estimatedTime} onChange={onEstChange} />
+      ) : (
+        <NumCell value={estimatedTime} />
+      )}
+      <NumCell value={realTime} />
+      <span /> {/* Assignees - empty */}
+      <span /> {/* Actions - empty */}
+    </div>
+  );
+}
+
+// ── Inline edit cells ────────────────────────────────────────────────────────
+
+function InlineStatusSelect({ value, onChange }: { value: TaskStatus; onChange: (v: TaskStatus) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as TaskStatus)}
+      className={`status-badge text-[10px] cursor-pointer border-0 outline-none ${STATUS_COLORS[value]}`}
+    >
+      {STATUS_OPTIONS.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function InlineDateInput({ value, onChange }: { value: string | null | undefined; onChange: (v: string | null) => void }) {
+  return (
+    <input
+      type="date"
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value || null)}
+      className="text-xs text-text-secondary bg-transparent border-0 outline-none w-full cursor-pointer"
+    />
+  );
+}
+
+function InlineNumberInput({ value, onChange }: { value: number | null | undefined; onChange: (v: number | null) => void }) {
+  const [local, setLocal] = useState(value != null ? String(value) : "");
+  // Sync from props when they change
+  useEffect(() => { setLocal(value != null ? String(value) : ""); }, [value]);
+
+  return (
+    <input
+      type="number"
+      step="0.01"
+      min="0"
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => {
+        const num = parseFloat(local);
+        onChange(isNaN(num) ? null : num);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.currentTarget.blur();
+        }
+      }}
+      className="text-xs text-text-secondary bg-transparent border border-border/50 rounded px-1 py-0.5 outline-none w-full focus:border-accent"
+    />
+  );
+}
+
+function InlineAssignees({
+  assignees, profiles, onChange,
+}: {
+  assignees: Task["task_assignees"];
+  profiles: UserProfile[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const currentIds = new Set(assignees.map((a) => a.user_id));
+
+  const toggle = (id: string) => {
+    const next = new Set(currentIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    onChange(Array.from(next));
   };
-  const label: Record<Task["status"], string> = {
-    not_started:  "Not Started",
-    in_progress:  "In Progress",
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center">
+        {assignees.length > 0 ? (
+          <Assignees assignees={assignees} />
+        ) : (
+          <span className="text-xs text-text-muted hover:text-accent transition-colors">+</span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute z-50 top-full left-0 mt-1 bg-elevated border border-border rounded-lg shadow-lg p-2 max-h-48 overflow-auto w-48">
+          {profiles.map((p) => {
+            const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || "?";
+            const selected = currentIds.has(p.id);
+            return (
+              <button
+                key={p.id}
+                onClick={() => toggle(p.id)}
+                className={`flex items-center gap-2 w-full px-2 py-1.5 rounded text-xs transition-colors ${selected ? "bg-accent/20 text-text-primary" : "text-text-secondary hover:bg-muted"}`}
+              >
+                <div className="w-5 h-5 rounded-full bg-accent text-white text-[9px] font-semibold flex items-center justify-center shrink-0 overflow-hidden">
+                  {p.picture ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.picture} alt={name} className="w-full h-full object-cover" />
+                  ) : (
+                    name[0]?.toUpperCase() ?? "?"
+                  )}
+                </div>
+                <span className="truncate">{name}</span>
+                {selected && <span className="ml-auto text-accent">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Read-only cells ──────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: TaskStatus }) {
+  const label: Record<TaskStatus, string> = {
+    not_started: "Not Started",
+    in_progress: "In Progress",
     ready_for_qa: "Ready for QA",
-    done:         "Done",
-    blocked:      "Blocked",
+    done: "Done",
+    blocked: "Blocked",
   };
-  return <span className={`status-badge text-[10px] ${map[status]}`}>{label[status]}</span>;
+  return <span className={`status-badge text-[10px] ${STATUS_COLORS[status]}`}>{label[status]}</span>;
 }
 
 function DateCell({ value }: { value: string | null | undefined }) {

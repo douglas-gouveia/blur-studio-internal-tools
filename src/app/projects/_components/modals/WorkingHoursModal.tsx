@@ -52,7 +52,7 @@ export default function WorkingHoursModal({
 
   const handleDelete = (id: string) => {
     startTransition(async () => {
-      await deleteTimeEntry(id);
+      await deleteTimeEntry(id, projectId);
       setEntries((prev) => prev.filter((e) => e.id !== id));
     });
   };
