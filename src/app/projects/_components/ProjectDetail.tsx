@@ -10,6 +10,7 @@ import DeveloperTasks from "./tabs/DeveloperTasks";
 import TasksKanban from "./tabs/TasksKanban";
 import WorkingHoursModal from "./modals/WorkingHoursModal";
 import QATimeTrackerModal from "./modals/QATimeTrackerModal";
+import ProjectModal from "./modals/ProjectModal";
 
 interface ProjectDetailProps {
   project: Project;
@@ -36,6 +37,7 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const [workingHoursOpen, setWorkingHoursOpen] = useState(false);
   const [qaTrackerOpen, setQaTrackerOpen] = useState(false);
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
 
   function handleTabChange(tab: TabKey) {
     setActiveTab(tab);
@@ -80,9 +82,12 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
             <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
-            <span className="text-text-primary font-medium truncate max-w-[240px]">
+            <button
+              onClick={() => setProjectModalOpen(true)}
+              className="text-text-primary font-medium truncate max-w-[240px] hover:text-accent transition-colors"
+            >
               {project.name ?? "Untitled"}
-            </span>
+            </button>
           </nav>
 
           {/* Progress badge */}
@@ -184,6 +189,13 @@ export default function ProjectDetail({ project, tasks, userType, initialTab, pr
         onClose={() => setQaTrackerOpen(false)}
         projectId={project.id}
         milestones={milestones}
+      />
+      <ProjectModal
+        open={projectModalOpen}
+        onClose={() => setProjectModalOpen(false)}
+        project={project}
+        profiles={profiles}
+        taskProgress={null}
       />
     </div>
   );

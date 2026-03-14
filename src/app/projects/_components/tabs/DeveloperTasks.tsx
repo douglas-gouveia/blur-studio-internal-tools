@@ -3,6 +3,7 @@
 import { useState, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { Task, TaskStatus, UserType, UserProfile, ClientMilestoneTotal, QAMilestoneTotal } from "@/types/projects";
+import DatePicker from "@/components/DatePicker";
 import TaskModal from "../modals/TaskModal";
 import TaskTimeTrackerModal from "../modals/TaskTimeTrackerModal";
 import ConfirmDeleteModal from "../modals/ConfirmDeleteModal";
@@ -483,11 +484,11 @@ function InlineStatusSelect({ value, onChange }: { value: TaskStatus; onChange: 
 
 function InlineDateInput({ value, onChange }: { value: string | null | undefined; onChange: (v: string | null) => void }) {
   return (
-    <input
-      type="date"
+    <DatePicker
       value={value ?? ""}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="text-xs text-text-secondary bg-transparent border-0 outline-none w-full cursor-pointer"
+      onChange={(v) => onChange(v || null)}
+      size="compact"
+      className="bg-transparent border-0 text-text-secondary"
     />
   );
 }

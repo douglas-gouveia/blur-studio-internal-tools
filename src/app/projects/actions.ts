@@ -35,6 +35,8 @@ export interface ProjectInput {
   change_automatically_milestone_estimated_time: boolean;
   change_automatically_project_start_end_dates: boolean;
   change_automatically_milestone_start_end_dates: boolean;
+  change_automatically_milestone_real_time: boolean;
+  change_automatically_project_real_time: boolean;
   talent_who_recommended_id: string | null;
   company_that_recommended_id: string | null;
 }
@@ -155,35 +157,49 @@ export async function deleteTask(id: string): Promise<{ error?: string }> {
   const { data: task } = await supabase.from("task").select("id, project_id").eq("id", id).single();
   if (!task) return { error: "Task not found" };
 
-  // 2. Collect all descendant IDs recursively
+  // 2. Collect all descendant IDs - fetch all project tasks at once for speed
+  const { data: allProjectTasks } = await supabase
+    .from("task")
+    .select("id, parent_task_id")
+    .eq("project_id", task.project_id!);
+
+  const byParent = new Map<string, string[]>();
+  for (const t of allProjectTasks ?? []) {
+    if (t.parent_task_id) {
+      const arr = byParent.get(t.parent_task_id) ?? [];
+      arr.push(t.id);
+      byParent.set(t.parent_task_id, arr);
+    }
+  }
+
   const allIds: string[] = [];
   const queue = [id];
   while (queue.length > 0) {
     const parentId = queue.shift()!;
     allIds.push(parentId);
-    const { data: children } = await supabase
-      .from("task")
-      .select("id")
-      .eq("parent_task_id", parentId);
-    if (children) {
-      for (const c of children) queue.push(c.id);
-    }
+    for (const childId of byParent.get(parentId) ?? []) queue.push(childId);
   }
 
-  // 3. Delete related data first, then tasks (deepest children first)
-  await supabase.from("task_comment").delete().in("task_id", allIds);
-  await supabase.from("time_track").delete().in("task_id", allIds);
-  await supabase.from("qa_time_track").delete().in("task_id", allIds);
-  await supabase.from("task_assignees").delete().in("task_id", allIds);
-  // Delete in reverse order (children first) to avoid FK violations
-  for (const taskId of allIds.reverse()) {
-    await supabase.from("task").delete().eq("id", taskId);
-  }
+  // 3. Delete related data in parallel, then tasks
+  await Promise.all([
+    supabase.from("task_comment").delete().in("task_id", allIds),
+    supabase.from("time_track").delete().in("task_id", allIds),
+    supabase.from("qa_time_track").delete().in("task_id", allIds),
+    supabase.from("task_assignees").delete().in("task_id", allIds),
+    supabase.from("client_milestone_total").delete().in("task_milestone_id", allIds),
+    supabase.from("qa_milestone_total").delete().in("task_milestone_id", allIds),
+  ]);
 
-  // 4. Recalculate aggregates
+  // Nullify parent references then batch delete
+  await supabase.from("task").update({ parent_task_id: null }).in("id", allIds);
+  await supabase.from("task").delete().in("id", allIds);
+
+  // 4. Recalculate aggregates in parallel
   if (task.project_id) {
-    await recalculateAggregates(task.project_id);
-    await recalculateRealTime(task.project_id);
+    await Promise.all([
+      recalculateAggregates(task.project_id),
+      recalculateRealTime(task.project_id),
+    ]);
   }
 
   revalidatePath("/projects");
@@ -227,7 +243,6 @@ export async function recalculateAggregates(projectId: string): Promise<void> {
   }
 
   // Bottom-up rollup: process leaf tasks first, then parents
-  // Build processing order using topological sort (children before parents)
   const order: string[] = [];
   const visited = new Set<string>();
   function visit(id: string) {
@@ -239,6 +254,7 @@ export async function recalculateAggregates(projectId: string): Promise<void> {
   }
   for (const t of tasks) visit(t.id);
 
+  // First pass: rollup developer_tasks tree (non-milestone parents sum their children)
   const updates: { id: string; estimated_time?: number | null; start_date_estimated?: string | null; end_date_estimated?: string | null }[] = [];
 
   for (const id of order) {
@@ -246,60 +262,122 @@ export async function recalculateAggregates(projectId: string): Promise<void> {
     const children = byParent.get(id) ?? [];
     if (children.length === 0) continue; // leaf — skip
 
-    // For level_1 (milestones): only auto-update if project flags allow
     const isMilestone = t.level === "level_1";
-    const autoEst = isMilestone ? project.change_automatically_milestone_estimated_time : true;
-    const autoDates = isMilestone ? project.change_automatically_milestone_start_end_dates : true;
 
-    // For milestones with client/qa: only sum developer_tasks children for est rollup
-    // (client_requests/qa_requests under milestones are handled separately)
-    const relevantChildren = isMilestone
-      ? children.filter((c) => c.type === "developer_tasks" || c.level === "level_2")
-      : children;
+    // Skip milestones in this first pass — handle them below with totals
+    if (isMilestone) continue;
 
+    // Non-milestone parents: always sum children
     const update: (typeof updates)[0] = { id };
     let changed = false;
 
-    if (autoEst) {
-      const estSum = relevantChildren.reduce((s, c) => s + (c.estimated_time ?? 0), 0);
-      const newEst = estSum || null;
-      if (t.estimated_time !== newEst) {
-        update.estimated_time = newEst;
-        t.estimated_time = newEst; // update in-memory for parent rollup
-        changed = true;
-      }
+    const estSum = children.reduce((s, c) => s + (c.estimated_time ?? 0), 0);
+    const newEst = estSum || null;
+    if (t.estimated_time !== newEst) {
+      update.estimated_time = newEst;
+      t.estimated_time = newEst;
+      changed = true;
     }
 
-    if (autoDates) {
-      const starts = relevantChildren.map((c) => c.start_date_estimated).filter(Boolean) as string[];
-      const ends = relevantChildren.map((c) => c.end_date_estimated).filter(Boolean) as string[];
-      const minStart = starts.length > 0 ? starts.sort()[0] : null;
-      const maxEnd = ends.length > 0 ? ends.sort().reverse()[0] : null;
-      if (t.start_date_estimated !== minStart) {
-        update.start_date_estimated = minStart;
-        t.start_date_estimated = minStart;
-        changed = true;
-      }
-      if (t.end_date_estimated !== maxEnd) {
-        update.end_date_estimated = maxEnd;
-        t.end_date_estimated = maxEnd;
-        changed = true;
-      }
+    const starts = children.map((c) => c.start_date_estimated).filter(Boolean) as string[];
+    const ends = children.map((c) => c.end_date_estimated).filter(Boolean) as string[];
+    const minStart = starts.length > 0 ? starts.sort()[0] : null;
+    const maxEnd = ends.length > 0 ? ends.sort().reverse()[0] : null;
+    if (t.start_date_estimated !== minStart) {
+      update.start_date_estimated = minStart;
+      t.start_date_estimated = minStart;
+      changed = true;
+    }
+    if (t.end_date_estimated !== maxEnd) {
+      update.end_date_estimated = maxEnd;
+      t.end_date_estimated = maxEnd;
+      changed = true;
     }
 
     if (changed) updates.push(update);
   }
 
-  // Batch task updates
-  for (const u of updates) {
-    const { id: taskId, ...data } = u;
-    if (Object.keys(data).length > 0) {
-      await supabase.from("task").update(data).eq("id", taskId);
+  // Batch task updates for non-milestone parents
+  await Promise.all(updates.map(({ id: taskId, ...data }) =>
+    Object.keys(data).length > 0 ? supabase.from("task").update(data).eq("id", taskId) : Promise.resolve()
+  ));
+
+  // Update client_milestone_total and qa_milestone_total per milestone
+  const milestones = tasks.filter((t) => t.level === "level_1" && !t.parent_task_id);
+
+  // Fetch current totals
+  const [{ data: clientTotals }, { data: qaTotals }] = await Promise.all([
+    supabase.from("client_milestone_total").select("id, task_milestone_id, estimated_time_h").eq("project_id", projectId),
+    supabase.from("qa_milestone_total").select("id, task_milestone_id, developer_estimated_time_h, qa_estimated_time_h").eq("project_id", projectId),
+  ]);
+  const clientTotalMap = new Map((clientTotals ?? []).map((c) => [c.task_milestone_id, c]));
+  const qaTotalMap = new Map((qaTotals ?? []).map((q) => [q.task_milestone_id, q]));
+
+  for (const m of milestones) {
+    const childTasks = byParent.get(m.id) ?? [];
+
+    // client_milestone_total.estimated_time_h = sum of client_requests children
+    const clientEst = childTasks
+      .filter((c) => c.type === "client_requests")
+      .reduce((s, c) => s + (c.estimated_time ?? 0), 0);
+
+    const existingClient = clientTotalMap.get(m.id);
+    if (existingClient) {
+      await supabase.from("client_milestone_total").update({ estimated_time_h: clientEst || null }).eq("id", existingClient.id);
+    } else {
+      await supabase.from("client_milestone_total").insert({ task_milestone_id: m.id, project_id: projectId, estimated_time_h: clientEst || null });
+    }
+
+    // qa_milestone_total: developer_estimated = sum of qa_requests children, qa_estimated stays manual
+    const qaDevEst = childTasks
+      .filter((c) => c.type === "qa_requests")
+      .reduce((s, c) => s + (c.estimated_time ?? 0), 0);
+
+    const existingQa = qaTotalMap.get(m.id);
+    if (existingQa) {
+      await supabase.from("qa_milestone_total").update({ developer_estimated_time_h: qaDevEst || null }).eq("id", existingQa.id);
+    } else {
+      await supabase.from("qa_milestone_total").insert({ task_milestone_id: m.id, project_id: projectId, developer_estimated_time_h: qaDevEst || null });
+    }
+
+    // Now compute milestone estimated_time including all totals
+    if (project.change_automatically_milestone_estimated_time) {
+      const devTasksEst = childTasks
+        .filter((c) => c.type === "developer_tasks")
+        .reduce((s, c) => s + (taskMap.get(c.id)!.estimated_time ?? 0), 0);
+
+      // Re-read the updated totals for this milestone
+      const cEst = clientEst;
+      const qaDevEstVal = qaDevEst;
+      const qaQaEst = existingQa?.qa_estimated_time_h ?? 0;
+
+      const milestoneEst = devTasksEst + cEst + qaDevEstVal + qaQaEst;
+      const newMilestoneEst = milestoneEst || null;
+
+      if (m.estimated_time !== newMilestoneEst) {
+        await supabase.from("task").update({ estimated_time: newMilestoneEst }).eq("id", m.id);
+        taskMap.get(m.id)!.estimated_time = newMilestoneEst;
+      }
+    }
+
+    if (project.change_automatically_milestone_start_end_dates) {
+      const devChildren = childTasks.filter((c) => c.type === "developer_tasks");
+      const starts = devChildren.map((c) => c.start_date_estimated).filter(Boolean) as string[];
+      const ends = devChildren.map((c) => c.end_date_estimated).filter(Boolean) as string[];
+      const minStart = starts.length > 0 ? starts.sort()[0] : null;
+      const maxEnd = ends.length > 0 ? ends.sort().reverse()[0] : null;
+      const milestoneData: Record<string, unknown> = {};
+      if (m.start_date_estimated !== minStart) milestoneData.start_date_estimated = minStart;
+      if (m.end_date_estimated !== maxEnd) milestoneData.end_date_estimated = maxEnd;
+      if (Object.keys(milestoneData).length > 0) {
+        await supabase.from("task").update(milestoneData).eq("id", m.id);
+        if (milestoneData.start_date_estimated !== undefined) taskMap.get(m.id)!.start_date_estimated = milestoneData.start_date_estimated as string | null;
+        if (milestoneData.end_date_estimated !== undefined) taskMap.get(m.id)!.end_date_estimated = milestoneData.end_date_estimated as string | null;
+      }
     }
   }
 
   // Project-level rollup from milestones
-  const milestones = tasks.filter((t) => t.level === "level_1" && !t.parent_task_id);
   const projectUpdate: Record<string, unknown> = {};
 
   if (project.change_automatically_project_estimated_time) {
@@ -314,28 +392,6 @@ export async function recalculateAggregates(projectId: string): Promise<void> {
   if (Object.keys(projectUpdate).length > 0) {
     await supabase.from("project").update(projectUpdate).eq("id", projectId);
   }
-
-  // Update client_milestone_total.estimated_time_h per milestone
-  for (const m of milestones) {
-    const childTasks = byParent.get(m.id) ?? [];
-    const clientEst = childTasks
-      .filter((c) => c.type === "client_requests")
-      .reduce((s, c) => s + (c.estimated_time ?? 0), 0);
-
-    // Upsert client_milestone_total
-    const { data: existing } = await supabase
-      .from("client_milestone_total")
-      .select("id")
-      .eq("task_milestone_id", m.id)
-      .eq("project_id", projectId)
-      .limit(1)
-      .single();
-    if (existing) {
-      await supabase.from("client_milestone_total").update({ estimated_time_h: clientEst || null }).eq("id", existing.id);
-    } else if (clientEst > 0) {
-      await supabase.from("client_milestone_total").insert({ task_milestone_id: m.id, project_id: projectId, estimated_time_h: clientEst });
-    }
-  }
 }
 
 /**
@@ -345,6 +401,19 @@ export async function recalculateAggregates(projectId: string): Promise<void> {
 export async function recalculateRealTime(projectId: string): Promise<void> {
   const supabase = await createClient();
 
+  // Fetch project flags (including new real_time flags)
+  const { data: projectRaw } = await supabase
+    .from("project")
+    .select("id, change_automatically_milestone_real_time, change_automatically_project_real_time")
+    .eq("id", projectId)
+    .single();
+  if (!projectRaw) return;
+  const project = projectRaw as unknown as {
+    id: string;
+    change_automatically_milestone_real_time: boolean;
+    change_automatically_project_real_time: boolean;
+  };
+
   // Fetch all tasks
   const { data: tasks } = await supabase
     .from("task")
@@ -352,17 +421,11 @@ export async function recalculateRealTime(projectId: string): Promise<void> {
     .eq("project_id", projectId);
   if (!tasks) return;
 
-  // Fetch all time_track entries
-  const { data: timeEntries } = await supabase
-    .from("time_track")
-    .select("task_id, time_spent_h, start_date")
-    .eq("project_id", projectId);
-
-  // Fetch all qa_time_track entries
-  const { data: qaTimeEntries } = await supabase
-    .from("qa_time_track")
-    .select("task_id, time_spent_h, start_date")
-    .eq("project_id", projectId);
+  // Fetch all time_track and qa_time_track entries in parallel
+  const [{ data: timeEntries }, { data: qaTimeEntries }] = await Promise.all([
+    supabase.from("time_track").select("task_id, time_spent_h, start_date").eq("project_id", projectId),
+    supabase.from("qa_time_track").select("task_id, time_spent_h, start_date").eq("project_id", projectId),
+  ]);
 
   const ttEntries = timeEntries ?? [];
   const qaEntries = qaTimeEntries ?? [];
@@ -380,19 +443,15 @@ export async function recalculateRealTime(projectId: string): Promise<void> {
     taskTimeMap.set(e.task_id, cur);
   }
 
-  // Update each task's real_time and real dates
-  for (const t of tasks) {
+  // Batch update each task's real_time and real dates
+  await Promise.all(tasks.map((t) => {
     const agg = taskTimeMap.get(t.id);
-    await supabase.from("task").update({
+    return supabase.from("task").update({
       real_time: agg ? agg.total : 0,
       start_date_real: agg?.minDate ?? null,
       end_date_real: agg?.maxDate ?? null,
     }).eq("id", t.id);
-  }
-
-  // Project real_time
-  const projectRealTime = ttEntries.reduce((s, e) => s + (e.time_spent_h ?? 0), 0);
-  await supabase.from("project").update({ real_time: projectRealTime }).eq("id", projectId);
+  }));
 
   // Milestone-level totals for client/qa
   const milestones = tasks.filter((t) => t.level === "level_1" && !t.parent_task_id);
@@ -403,7 +462,6 @@ export async function recalculateRealTime(projectId: string): Promise<void> {
   for (const m of milestones) milestoneTaskIds.set(m.id, new Set());
   for (const t of tasks) {
     if (!t.parent_task_id) continue;
-    // Walk up to find milestone
     let current = t;
     while (current.parent_task_id && taskById.has(current.parent_task_id)) {
       const parent = taskById.get(current.parent_task_id)!;
@@ -414,6 +472,14 @@ export async function recalculateRealTime(projectId: string): Promise<void> {
       current = parent;
     }
   }
+
+  // Fetch existing totals in parallel
+  const [{ data: clientTotals }, { data: qaTotals }] = await Promise.all([
+    supabase.from("client_milestone_total").select("id, task_milestone_id").eq("project_id", projectId),
+    supabase.from("qa_milestone_total").select("id, task_milestone_id").eq("project_id", projectId),
+  ]);
+  const clientTotalMap = new Map((clientTotals ?? []).map((c) => [c.task_milestone_id, c]));
+  const qaTotalMap = new Map((qaTotals ?? []).map((q) => [q.task_milestone_id, q]));
 
   for (const m of milestones) {
     const descIds = milestoneTaskIds.get(m.id) ?? new Set();
@@ -434,33 +500,21 @@ export async function recalculateRealTime(projectId: string): Promise<void> {
       .reduce((s, e) => s + (e.time_spent_h ?? 0), 0);
 
     // Upsert client_milestone_total
-    const { data: cmt } = await supabase
-      .from("client_milestone_total")
-      .select("id")
-      .eq("task_milestone_id", m.id)
-      .eq("project_id", projectId)
-      .limit(1)
-      .single();
-    if (cmt) {
-      await supabase.from("client_milestone_total").update({ real_time_h: clientRealTime || null }).eq("id", cmt.id);
-    } else if (clientRealTime > 0) {
-      await supabase.from("client_milestone_total").insert({ task_milestone_id: m.id, project_id: projectId, real_time_h: clientRealTime });
+    const existingClient = clientTotalMap.get(m.id);
+    if (existingClient) {
+      await supabase.from("client_milestone_total").update({ real_time_h: clientRealTime || null }).eq("id", existingClient.id);
+    } else {
+      await supabase.from("client_milestone_total").insert({ task_milestone_id: m.id, project_id: projectId, real_time_h: clientRealTime || null });
     }
 
     // Upsert qa_milestone_total
-    const { data: qmt } = await supabase
-      .from("qa_milestone_total")
-      .select("id")
-      .eq("task_milestone_id", m.id)
-      .eq("project_id", projectId)
-      .limit(1)
-      .single();
-    if (qmt) {
+    const existingQa = qaTotalMap.get(m.id);
+    if (existingQa) {
       await supabase.from("qa_milestone_total").update({
         developer_real_time_h: qaDevRealTime || null,
         qa_real_time_h: qaQaRealTime || null,
-      }).eq("id", qmt.id);
-    } else if (qaDevRealTime > 0 || qaQaRealTime > 0) {
+      }).eq("id", existingQa.id);
+    } else {
       await supabase.from("qa_milestone_total").insert({
         task_milestone_id: m.id,
         project_id: projectId,
@@ -468,6 +522,31 @@ export async function recalculateRealTime(projectId: string): Promise<void> {
         qa_real_time_h: qaQaRealTime || null,
       });
     }
+
+    // milestone.real_time = sum of all level_2 tasks real_time under milestone + qa_time_track
+    if (project.change_automatically_milestone_real_time) {
+      const level2RealTime = [...descIds]
+        .filter((tid) => taskById.get(tid)?.level === "level_2")
+        .reduce((s, tid) => s + (taskTimeMap.get(tid)?.total ?? 0), 0);
+      const milestoneQaRealTime = qaEntries
+        .filter((e) => e.task_id && descIds.has(e.task_id))
+        .reduce((s, e) => s + (e.time_spent_h ?? 0), 0);
+      const milestoneRealTime = level2RealTime + milestoneQaRealTime;
+      await supabase.from("task").update({ real_time: milestoneRealTime || 0 }).eq("id", m.id);
+    }
+  }
+
+  // Project real_time = sum of all milestones real_time
+  if (project.change_automatically_project_real_time) {
+    // Re-fetch milestone real_time after updates
+    const { data: updatedMilestones } = await supabase
+      .from("task")
+      .select("id, real_time")
+      .eq("project_id", projectId)
+      .eq("level", "level_1")
+      .is("parent_task_id", null);
+    const projectRealTime = (updatedMilestones ?? []).reduce((s, m) => s + (m.real_time ?? 0), 0);
+    await supabase.from("project").update({ real_time: projectRealTime }).eq("id", projectId);
   }
 }
 
@@ -497,6 +576,8 @@ export async function updateClientMilestoneTotal(
     });
     if (error) return { error: error.message };
   }
+  // Cascade: recalculate milestone and project estimated_time
+  await recalculateMilestoneEstFromTotals(milestoneId, projectId);
   revalidatePath("/projects");
   return {};
 }
@@ -525,8 +606,72 @@ export async function updateQAMilestoneTotal(
     });
     if (error) return { error: error.message };
   }
+  // Cascade: recalculate milestone and project estimated_time
+  await recalculateMilestoneEstFromTotals(milestoneId, projectId);
   revalidatePath("/projects");
   return {};
+}
+
+/**
+ * Recalculates milestone.estimated_time from dev tasks + client/qa totals,
+ * then cascades to project.estimated_time if flags allow.
+ */
+async function recalculateMilestoneEstFromTotals(milestoneId: string, projectId: string): Promise<void> {
+  const supabase = await createClient();
+
+  const { data: project } = await supabase
+    .from("project")
+    .select("id, change_automatically_milestone_estimated_time, change_automatically_project_estimated_time")
+    .eq("id", projectId)
+    .single();
+  if (!project) return;
+
+  if (project.change_automatically_milestone_estimated_time) {
+    // Sum developer_tasks children of this milestone
+    const { data: devChildren } = await supabase
+      .from("task")
+      .select("estimated_time")
+      .eq("parent_task_id", milestoneId)
+      .eq("type", "developer_tasks");
+    const devEst = (devChildren ?? []).reduce((s, c) => s + (c.estimated_time ?? 0), 0);
+
+    // Get client total
+    const { data: ct } = await supabase
+      .from("client_milestone_total")
+      .select("estimated_time_h")
+      .eq("task_milestone_id", milestoneId)
+      .eq("project_id", projectId)
+      .limit(1)
+      .single();
+
+    // Get qa total
+    const { data: qt } = await supabase
+      .from("qa_milestone_total")
+      .select("developer_estimated_time_h, qa_estimated_time_h")
+      .eq("task_milestone_id", milestoneId)
+      .eq("project_id", projectId)
+      .limit(1)
+      .single();
+
+    const milestoneEst = devEst
+      + (ct?.estimated_time_h ?? 0)
+      + (qt?.developer_estimated_time_h ?? 0)
+      + (qt?.qa_estimated_time_h ?? 0);
+
+    await supabase.from("task").update({ estimated_time: milestoneEst || null }).eq("id", milestoneId);
+  }
+
+  if (project.change_automatically_project_estimated_time) {
+    // Sum all milestones' estimated_time for this project
+    const { data: allMilestones } = await supabase
+      .from("task")
+      .select("estimated_time")
+      .eq("project_id", projectId)
+      .eq("level", "level_1")
+      .is("parent_task_id", null);
+    const projectEst = (allMilestones ?? []).reduce((s, m) => s + (m.estimated_time ?? 0), 0);
+    await supabase.from("project").update({ estimated_time: projectEst || null }).eq("id", projectId);
+  }
 }
 
 // ── Developer Time Track ──────────────────────────────────────────────────────

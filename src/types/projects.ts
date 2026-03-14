@@ -187,6 +187,8 @@ export interface Project {
   change_automatically_milestone_estimated_time: boolean;
   change_automatically_project_start_end_dates: boolean;
   change_automatically_milestone_start_end_dates: boolean;
+  change_automatically_milestone_real_time: boolean;
+  change_automatically_project_real_time: boolean;
   talent_who_recommended_id: string | null;
   company_that_recommended_id: string | null;
   created_at: string;

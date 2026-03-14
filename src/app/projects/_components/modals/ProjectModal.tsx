@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
+import DatePicker from "@/components/DatePicker";
 import type { Project, ProjectStatus, ProjectProgram, ProjectStage, UserProfile, Talent } from "@/types/projects";
 import { STAGE_LABELS, STAGE_ORDER, PROGRAM_LABELS } from "@/types/projects";
 import {
@@ -83,6 +84,8 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
   const [autoMilestoneEst, setAutoMilestoneEst] = useState(false);
   const [autoProjectDates, setAutoProjectDates] = useState(false);
   const [autoMilestoneDates, setAutoMilestoneDates] = useState(false);
+  const [autoMilestoneRealTime, setAutoMilestoneRealTime] = useState(true);
+  const [autoProjectRealTime, setAutoProjectRealTime] = useState(true);
 
   // Recommended by
   const [recommendedBy, setRecommendedBy] = useState<"dev_agency_owner" | "client" | "">("");
@@ -114,6 +117,8 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
     setAutoMilestoneEst(project?.change_automatically_milestone_estimated_time ?? false);
     setAutoProjectDates(project?.change_automatically_project_start_end_dates ?? false);
     setAutoMilestoneDates(project?.change_automatically_milestone_start_end_dates ?? false);
+    setAutoMilestoneRealTime(project?.change_automatically_milestone_real_time ?? true);
+    setAutoProjectRealTime(project?.change_automatically_project_real_time ?? true);
     setRecommendedBy(project?.talent_who_recommended_id ? "dev_agency_owner" : "");
     setSelectedTalent(null);
     setTalentSearch(project?.talent_who_recommended_id ? "" : "");
@@ -177,6 +182,8 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
       change_automatically_milestone_estimated_time: autoMilestoneEst,
       change_automatically_project_start_end_dates: autoProjectDates,
       change_automatically_milestone_start_end_dates: autoMilestoneDates,
+      change_automatically_milestone_real_time: autoMilestoneRealTime,
+      change_automatically_project_real_time: autoProjectRealTime,
       talent_who_recommended_id: recommendedBy === "dev_agency_owner" ? (selectedTalent?.id ?? project?.talent_who_recommended_id ?? null) : null,
       company_that_recommended_id: project?.company_that_recommended_id ?? null,
     };
@@ -311,20 +318,20 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
           {/* Dates estimated */}
           <div className="grid grid-cols-2 gap-4">
             <Field label="Start Date (Estimated)">
-              <input type="date" value={startEst} onChange={(e) => setStartEst(e.target.value)} className="input-field" />
+              <DatePicker value={startEst} onChange={setStartEst} />
             </Field>
             <Field label="End Date (Estimated)">
-              <input type="date" value={endEst} onChange={(e) => setEndEst(e.target.value)} className="input-field" />
+              <DatePicker value={endEst} onChange={setEndEst} />
             </Field>
           </div>
 
           {/* Dates real */}
           <div className="grid grid-cols-2 gap-4">
             <Field label="Start Date (Real)">
-              <input type="date" value={startReal} onChange={(e) => setStartReal(e.target.value)} className="input-field" />
+              <DatePicker value={startReal} onChange={setStartReal} />
             </Field>
             <Field label="End Date (Real)">
-              <input type="date" value={endReal} onChange={(e) => setEndReal(e.target.value)} className="input-field" />
+              <DatePicker value={endReal} onChange={setEndReal} />
             </Field>
           </div>
 
@@ -405,6 +412,8 @@ export default function ProjectModal({ open, onClose, project, profiles, taskPro
             <Toggle label="Change Automatically the Milestones' Start Date and End Date" value={autoMilestoneDates} onChange={setAutoMilestoneDates} />
             <Toggle label="Change Automatically This Project's Estimated Time" value={autoProjectEst} onChange={setAutoProjectEst} />
             <Toggle label="Change Automatically This Project's Start Date and End Date" value={autoProjectDates} onChange={setAutoProjectDates} />
+            <Toggle label="Change Automatically the Milestones' Real Time" value={autoMilestoneRealTime} onChange={setAutoMilestoneRealTime} />
+            <Toggle label="Change Automatically This Project's Real Time" value={autoProjectRealTime} onChange={setAutoProjectRealTime} />
           </div>
 
           {/* Progress (edit mode only) — after toggles, before description */}

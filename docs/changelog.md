@@ -5,6 +5,20 @@ Format: `[YYYY-MM-DD] — Description`
 
 ---
 
+## [2026-03-14] — Fix: Date picker, kanban ordering, cascade updates, performance, project popup
+
+- **DatePicker**: Added Delete/Backspace keyboard shortcut to clear selected date value
+- **Developer Tasks dates**: Start/End Date inputs now use calendar DatePicker with auto-binding to database
+- **Kanban drag-and-drop**: Fixed card ordering using fractional values (NUMERIC column) — cards now correctly stay between, at first, or at last position using formulas: between=(above+below)/2, first=first_order-1, last=last_order+1. Fixed stale drop target via ref-based tracking
+- **Estimated time cascade**: When client/qa milestone totals are updated, milestone.estimated_time now includes dev tasks + client_total + qa_dev_total + qa_qa_total. Cascades to project.estimated_time when automation flags are TRUE
+- **Real time cascade**: time_track updates cascade through task → client/qa_milestone_total → milestone → project, respecting new automation flags (change_automatically_milestone_real_time, change_automatically_project_real_time)
+- **qa_time_track cascade**: qa_time_track.time_spent_h updates cascade to qa_milestone_total.qa_real_time_h → milestone.real_time → project.real_time
+- **Performance**: Task deletion and creation optimized with parallel batch operations instead of sequential queries
+- **Project popup**: Project name in breadcrumb is now clickable to open the ProjectModal
+- **DB migration**: `task.order` changed from INTEGER to NUMERIC; added `change_automatically_milestone_real_time` and `change_automatically_project_real_time` columns to project table
+
+---
+
 ## [2026-03-05] — Build Step 6: Projects CRUD modals + actions
 
 - Added `ProjectProgram`, `TimeTrack`, `QATimeTrack` types + time helpers to `src/types/projects.ts`
