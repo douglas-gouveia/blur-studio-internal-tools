@@ -29,6 +29,7 @@ export default function RichTextEditor({
     extensions: [StarterKit, Underline],
     content,
     editable,
+    immediatelyRender: false,
     onUpdate: ({ editor: e }) => {
       onChange(e.getHTML());
     },

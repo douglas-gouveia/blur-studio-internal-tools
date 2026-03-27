@@ -1,14 +1,21 @@
 /**
  * Step 4 — Product Definition & Flows.
  * Left column: readonly idea context + product architecture notes.
- * Right column: rich text Product Summary editor, features display,
- * user type pills with per-type flow content.
+ * Right column: rich text Product Summary editor.
+ * Below: editable Feature List & Logic, user type pills (+ create/delete),
+ * editable User Flow per type, with AI regeneration buttons.
  */
 "use client";
 
 import { useState } from "react";
-import type { IdeaFull } from "@/types/sandbox-planner";
-import { saveProductDefinition, triggerAiGeneration } from "../actions";
+import type { IdeaFull, IdeaUserType } from "@/types/sandbox-planner";
+import {
+  saveProductDefinition,
+  triggerAiGeneration,
+  createUserType,
+  updateUserType,
+  deleteUserType,
+} from "../actions";
 import { cn } from "@/lib/utils";
 import RichTextEditor from "./RichTextEditor";
 import AiLoadingOverlay from "./AiLoadingOverlay";
@@ -17,44 +24,133 @@ interface ProductDefinitionStepProps {
   ideaFull: IdeaFull;
 }
 
-/** Renders the Product Definition & Flows step with rich text editing and user type pills. */
 export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionStepProps) {
-  const { idea, structureAlign, productDefinition, userTypes } = ideaFull;
+  const { idea, structureAlign, productDefinition, userTypes: initialUserTypes } = ideaFull;
   const isAiWorking = idea.current_blocks_updating === "product_definition_flows";
 
   const [summary, setSummary] = useState(productDefinition?.summary ?? "");
   const [features, setFeatures] = useState(productDefinition?.features ?? "");
-  const [selectedUserType, setSelectedUserType] = useState<string | null>(
-    userTypes[0]?.id ?? null
+  const [userTypes, setUserTypes] = useState<IdeaUserType[]>(initialUserTypes);
+  const [selectedUserTypeId, setSelectedUserTypeId] = useState<string | null>(
+    initialUserTypes[0]?.id ?? null
   );
+  const [flowContent, setFlowContent] = useState<Record<string, string>>(
+    Object.fromEntries(initialUserTypes.map((ut) => [ut.id, ut.flows ?? ""]))
+  );
+
   const [isSaving, setIsSaving] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isRegeneratingFlow, setIsRegeneratingFlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedType = userTypes.find((u) => u.id === selectedUserType) ?? null;
+  // Create user type modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [newTypeDesc, setNewTypeDesc] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
+  const selectedType = userTypes.find((u) => u.id === selectedUserTypeId) ?? null;
+
+  // ── Save ─────────────────────────────────────────────────────────────────
   async function handleSave() {
     if (isSaving) return;
     setIsSaving(true);
     setError(null);
 
-    const result = await saveProductDefinition(idea.id, {
-      summary: summary,
-      features: features,
-    });
+    // Save product definition (summary + features)
+    const result = await saveProductDefinition(idea.id, { summary, features });
+    if (result.error) {
+      setError(result.error);
+      setIsSaving(false);
+      return;
+    }
+
+    // Save flows for all user types that were changed
+    for (const ut of userTypes) {
+      const flow = flowContent[ut.id] ?? "";
+      if (flow !== (ut.flows ?? "")) {
+        await updateUserType(ut.id, { flows: flow });
+      }
+    }
 
     setIsSaving(false);
-    if (result.error) setError(result.error);
   }
 
+  // ── AI: regenerate product summary + features ─────────────────────────────
   async function handleRegenerate() {
     setIsRegenerating(true);
     setError(null);
-
     const result = await triggerAiGeneration(idea.id, "product_definition_flows");
-
     setIsRegenerating(false);
     if (result.error) setError(result.error);
+  }
+
+  // ── AI: regenerate user flow for selected type ────────────────────────────
+  async function handleRegenerateFlow() {
+    if (!selectedType) return;
+    setIsRegeneratingFlow(true);
+    setError(null);
+    const result = await triggerAiGeneration(idea.id, "product_definition_flows");
+    setIsRegeneratingFlow(false);
+    if (result.error) setError(result.error);
+  }
+
+  // ── Create user type ──────────────────────────────────────────────────────
+  async function handleCreateUserType() {
+    if (!newTypeName.trim()) {
+      setCreateError("Name is required.");
+      return;
+    }
+    setIsCreating(true);
+    setCreateError(null);
+
+    const result = await createUserType(idea.id, {
+      name: newTypeName.trim(),
+      description: newTypeDesc.trim() || undefined,
+    });
+
+    if (result.error) {
+      setCreateError(result.error);
+      setIsCreating(false);
+      return;
+    }
+
+    const newType: IdeaUserType = {
+      id: result.id!,
+      idea_id: idea.id,
+      name: newTypeName.trim(),
+      description: newTypeDesc.trim() || null,
+      flows: null,
+      created_at: new Date().toISOString(),
+    };
+
+    setUserTypes((prev) => [...prev, newType]);
+    setFlowContent((prev) => ({ ...prev, [result.id!]: "" }));
+    setSelectedUserTypeId(result.id!);
+    setNewTypeName("");
+    setNewTypeDesc("");
+    setShowCreateModal(false);
+    setIsCreating(false);
+  }
+
+  // ── Delete user type ──────────────────────────────────────────────────────
+  async function handleDeleteUserType(id: string) {
+    const result = await deleteUserType(id);
+    if (result.error) { setError(result.error); return; }
+
+    setUserTypes((prev) => {
+      const next = prev.filter((ut) => ut.id !== id);
+      if (selectedUserTypeId === id) {
+        setSelectedUserTypeId(next[0]?.id ?? null);
+      }
+      return next;
+    });
+    setFlowContent((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }
 
   if (isAiWorking) {
@@ -63,29 +159,22 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
 
   return (
     <div className="space-y-6">
+      {/* ── Top two-column grid ───────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left column — Readonly context */}
         <div className="space-y-4">
-          {/* Original Idea */}
           <div>
-            <h3 className="text-sm font-semibold text-text-primary mb-1">
-              Original Idea*
-            </h3>
+            <h3 className="text-sm font-semibold text-text-primary mb-1">Original Idea*</h3>
             <div className="rounded-lg border border-border bg-surface p-4">
-              <h4 className="text-sm font-bold text-text-primary mb-2">
-                {idea.name}
-              </h4>
+              <h4 className="text-sm font-bold text-text-primary mb-2">{idea.name}</h4>
               <p className="text-sm text-text-secondary whitespace-pre-wrap">
                 {idea.description ?? "No description provided."}
               </p>
             </div>
           </div>
 
-          {/* Finalized Core Problem */}
           <div>
-            <h3 className="text-sm font-semibold text-text-primary mb-1">
-              Finalized Core Problem*
-            </h3>
+            <h3 className="text-sm font-semibold text-text-primary mb-1">Finalized Core Problem*</h3>
             <div className="rounded-lg border border-border bg-surface p-4">
               <p className="text-sm text-text-secondary whitespace-pre-wrap">
                 {structureAlign?.core_problem ?? "Not defined yet."}
@@ -93,14 +182,10 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
             </div>
           </div>
 
-          {/* Product Architecture notes */}
           <div className="rounded-lg border border-border bg-surface p-4">
-            <h3 className="text-sm font-semibold text-text-primary mb-2">
-              Product Architecture
-            </h3>
+            <h3 className="text-sm font-semibold text-text-primary mb-2">Product Architecture</h3>
             <p className="text-xs text-text-muted mb-2">
-              Now that we know the problem, let&apos;s define the solution. Focus on
-              the user journey:
+              Now that we know the problem, let&apos;s define the solution. Focus on the user journey:
             </p>
             <ul className="text-xs text-text-muted list-disc list-inside space-y-1">
               <li>What is the core value proposition in action?</li>
@@ -110,119 +195,152 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
           </div>
         </div>
 
-        {/* Right column — Product Summary (rich text) */}
-        <div className="space-y-5">
-          <div>
-            <label className="block text-sm font-semibold text-text-primary mb-1.5">
-              Product Summary*
-            </label>
-            <RichTextEditor
-              content={summary}
-              onChange={setSummary}
-              editable={!isSaving && !isRegenerating}
-            />
+        {/* Right column — Product Summary rich text */}
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-text-primary">Product Summary*</label>
+          <RichTextEditor
+            content={summary}
+            onChange={setSummary}
+            editable={!isSaving && !isRegenerating}
+          />
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={handleRegenerate}
+              disabled={isRegenerating || isSaving}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium",
+                "bg-accent text-white hover:bg-accent/90 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                "disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              <IconRefresh />
+              {isRegenerating
+                ? "Regenerating..."
+                : "Regenerate New Product Summary and Feature List & Logic"}
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Feature List & Logic — full width */}
-      {features && (
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-2">
-            Feature List &amp; Logic
-          </h3>
-          <div
-            className="rounded-lg border border-border bg-surface p-4 prose prose-sm prose-invert max-w-none text-text-secondary"
-            dangerouslySetInnerHTML={{ __html: features }}
-          />
+      {/* ── Feature List & Logic ─────────────────────────────────────────── */}
+      <div className="space-y-2">
+        <label className="block text-sm font-semibold text-text-primary">
+          Feature List &amp; Logic
+        </label>
+        <RichTextEditor
+          content={features}
+          onChange={setFeatures}
+          editable={!isSaving && !isRegenerating}
+        />
+      </div>
+
+      {/* ── User Type Flows ──────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-text-primary">User Flow</h3>
         </div>
-      )}
 
-      {/* User Type Flows */}
-      {userTypes.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-text-primary">
-            User Flows
-          </h3>
-
-          {/* User type pills */}
-          <div className="flex flex-wrap gap-2" role="tablist" aria-label="User types">
-            {userTypes.map((ut) => (
+        {/* Pills row */}
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="User types">
+          {userTypes.map((ut) => (
+            <div key={ut.id} className="flex items-center gap-0.5">
               <button
-                key={ut.id}
                 role="tab"
-                aria-selected={ut.id === selectedUserType}
-                onClick={() => setSelectedUserType(ut.id)}
+                aria-selected={ut.id === selectedUserTypeId}
+                onClick={() => setSelectedUserTypeId(ut.id)}
                 className={cn(
                   "px-4 py-2 rounded-full text-sm font-medium transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
-                  ut.id === selectedUserType
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                  ut.id === selectedUserTypeId
                     ? "bg-accent text-white"
                     : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-muted"
                 )}
               >
                 {ut.name}
               </button>
-            ))}
-          </div>
-
-          {/* Selected user type flows */}
-          {selectedType && (
-            <div className="rounded-lg border border-border bg-surface p-4 space-y-2">
-              {selectedType.description && (
-                <p className="text-sm text-text-secondary">
-                  {selectedType.description}
-                </p>
-              )}
-              {selectedType.flows && (
-                <div
-                  className="prose prose-sm prose-invert max-w-none text-text-secondary"
-                  dangerouslySetInnerHTML={{ __html: selectedType.flows }}
-                />
-              )}
-              {!selectedType.description && !selectedType.flows && (
-                <p className="text-sm text-text-muted italic">
-                  No flow content yet.
-                </p>
-              )}
+              <button
+                onClick={() => handleDeleteUserType(ut.id)}
+                aria-label={`Delete ${ut.name}`}
+                className="p-1 rounded text-text-muted hover:text-red-400 transition-colors focus-visible:outline-none"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-          )}
+          ))}
+
+          {/* + User Type button */}
+          <button
+            onClick={() => { setShowCreateModal(true); setCreateError(null); }}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium",
+              "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-muted transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            )}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            User Type
+          </button>
         </div>
-      )}
 
-      {/* Error */}
+        {/* Selected user type flow editor */}
+        {selectedType && (
+          <div className="space-y-2">
+            {selectedType.description && (
+              <p className="text-sm text-text-muted italic">{selectedType.description}</p>
+            )}
+            <RichTextEditor
+              content={flowContent[selectedType.id] ?? ""}
+              onChange={(html) =>
+                setFlowContent((prev) => ({ ...prev, [selectedType.id]: html }))
+              }
+              editable={!isSaving && !isRegeneratingFlow}
+            />
+            <div className="flex justify-end pt-1">
+              <button
+                onClick={handleRegenerateFlow}
+                disabled={isRegeneratingFlow || isSaving}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium",
+                  "bg-accent text-white hover:bg-accent/90 transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                <IconRefresh />
+                {isRegeneratingFlow
+                  ? "Regenerating..."
+                  : `Regenerate New User Flow for ${selectedType.name}`}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {userTypes.length === 0 && (
+          <p className="text-sm text-text-muted italic">
+            No user types yet. Click &quot;+ User Type&quot; to add one.
+          </p>
+        )}
+      </div>
+
+      {/* ── Error ────────────────────────────────────────────────────────── */}
       {error && (
-        <p className="text-sm text-red-400" role="alert">
-          {error}
-        </p>
+        <p className="text-sm text-red-400" role="alert">{error}</p>
       )}
 
-      {/* Action buttons */}
-      <div className="flex items-center justify-end gap-3">
-        <button
-          onClick={handleRegenerate}
-          disabled={isRegenerating || isSaving}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium",
-            "bg-accent text-white hover:bg-accent/90 transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
-            "disabled:opacity-50 disabled:cursor-not-allowed"
-          )}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          {isRegenerating
-            ? "Regenerating..."
-            : "Regenerate New Product Summary and Feature List & Logic"}
-        </button>
+      {/* ── Save button ──────────────────────────────────────────────────── */}
+      <div className="flex justify-end">
         <button
           onClick={handleSave}
           disabled={isSaving || isRegenerating}
           className={cn(
-            "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium",
+            "flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium",
             "bg-green-600 text-white hover:bg-green-700 transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
         >
@@ -232,6 +350,78 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
           {isSaving ? "Saving..." : "Save"}
         </button>
       </div>
+
+      {/* ── Create User Type Modal ────────────────────────────────────────── */}
+      {showCreateModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowCreateModal(false); }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-6">Create User Type</h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Name*
+                </label>
+                <input
+                  type="text"
+                  value={newTypeName}
+                  onChange={(e) => setNewTypeName(e.target.value)}
+                  placeholder="Name here..."
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-accent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={newTypeDesc}
+                  onChange={(e) => setNewTypeDesc(e.target.value)}
+                  placeholder="Describe here the main problem you are trying to solve..."
+                  rows={4}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-accent resize-none"
+                />
+              </div>
+
+              {createError && (
+                <p className="text-sm text-red-500">{createError}</p>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => { setShowCreateModal(false); setNewTypeName(""); setNewTypeDesc(""); setCreateError(null); }}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors focus-visible:outline-none"
+              >
+                Close
+              </button>
+              <button
+                onClick={handleCreateUserType}
+                disabled={isCreating}
+                className={cn(
+                  "flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors",
+                  "bg-accent hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                {isCreating ? "Creating..." : "Create"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function IconRefresh() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    </svg>
   );
 }
