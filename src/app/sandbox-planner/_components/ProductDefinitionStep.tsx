@@ -40,7 +40,6 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
 
   const [isSaving, setIsSaving] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [isRegeneratingFlow, setIsRegeneratingFlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Create user type modal state
@@ -52,11 +51,10 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
 
   const selectedType = userTypes.find((u) => u.id === selectedUserTypeId) ?? null;
 
-  // ── Sync props → state after AI generation + router.refresh() ────────────
   useEffect(() => {
     setSummary(productDefinition?.summary ?? "");
     setFeatures(productDefinition?.features ?? "");
-  }, [productDefinition]);
+  }, [productDefinition?.summary, productDefinition?.features]);
 
   useEffect(() => {
     setUserTypes(initialUserTypes);
@@ -68,7 +66,6 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
     );
   }, [initialUserTypes]);
 
-  // ── Save ─────────────────────────────────────────────────────────────────
   async function handleSave() {
     if (isSaving) return;
     setIsSaving(true);
@@ -93,7 +90,6 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
     setIsSaving(false);
   }
 
-  // ── AI: regenerate product summary + features ─────────────────────────────
   async function handleRegenerate() {
     setIsRegenerating(true);
     setError(null);
@@ -102,17 +98,6 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
     if (result.error) setError(result.error);
   }
 
-  // ── AI: regenerate user flow for selected type ────────────────────────────
-  async function handleRegenerateFlow() {
-    if (!selectedType) return;
-    setIsRegeneratingFlow(true);
-    setError(null);
-    const result = await triggerAiGeneration(idea.id, "product_definition_flows");
-    setIsRegeneratingFlow(false);
-    if (result.error) setError(result.error);
-  }
-
-  // ── Create user type ──────────────────────────────────────────────────────
   async function handleCreateUserType() {
     if (!newTypeName.trim()) {
       setCreateError("Name is required.");
@@ -150,7 +135,6 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
     setIsCreating(false);
   }
 
-  // ── Delete user type ──────────────────────────────────────────────────────
   async function handleDeleteUserType(id: string) {
     const result = await deleteUserType(id);
     if (result.error) { setError(result.error); return; }
@@ -316,12 +300,12 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
               onChange={(html) =>
                 setFlowContent((prev) => ({ ...prev, [selectedType.id]: html }))
               }
-              editable={!isSaving && !isRegeneratingFlow}
+              editable={!isSaving && !isRegenerating}
             />
             <div className="flex justify-end pt-1">
               <button
-                onClick={handleRegenerateFlow}
-                disabled={isRegeneratingFlow || isSaving}
+                onClick={handleRegenerate}
+                disabled={isRegenerating || isSaving}
                 className={cn(
                   "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium",
                   "bg-accent text-white hover:bg-accent/90 transition-colors",
@@ -330,7 +314,7 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
                 )}
               >
                 <IconRefresh />
-                {isRegeneratingFlow
+                {isRegenerating
                   ? "Regenerating..."
                   : `Regenerate New User Flow for ${selectedType.name}`}
               </button>

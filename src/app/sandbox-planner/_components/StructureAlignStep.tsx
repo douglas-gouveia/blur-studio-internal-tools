@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { IdeaFull } from "@/types/sandbox-planner";
 import { saveStructureAlign, triggerAiGeneration } from "../actions";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,12 @@ export default function StructureAlignStep({ ideaFull }: StructureAlignStepProps
   const [isSaving, setIsSaving] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCoreProblem(structureAlign?.core_problem ?? "");
+    setTargetAudience(structureAlign?.target_audience ?? "");
+    setSuccessMetrics(structureAlign?.success_metrics ?? "");
+  }, [structureAlign?.core_problem, structureAlign?.target_audience, structureAlign?.success_metrics]);
 
   const canSave =
     coreProblem.trim().length > 0 &&
