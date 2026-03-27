@@ -57,7 +57,7 @@ export default function AiLoadingOverlay({
   if (showSuccess && !justCompleted) return null;
 
   return (
-    <div className="relative flex flex-col items-center justify-center min-h-64">
+    <div className="relative flex flex-col items-center justify-center min-h-96">
       {/* Success banner */}
       {showSuccess && (
         <div
@@ -73,29 +73,23 @@ export default function AiLoadingOverlay({
 
       {/* Spinner + message */}
       {!justCompleted && (
-        <div className="flex flex-col items-center gap-4 mt-8">
-          {/* Animated spinner icon */}
-          <div className="w-16 h-16 rounded-full bg-accent flex items-center justify-center animate-pulse">
+        <div className="flex flex-col items-center gap-6 mt-8">
+          {/* Animated sparkle circle */}
+          <div className="w-24 h-24 rounded-full bg-accent flex items-center justify-center animate-pulse">
             <svg
-              className="w-8 h-8 text-white"
-              fill="none"
+              className="w-12 h-12 text-white"
+              fill="currentColor"
               viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
+              <path d="M12 2 L13.5 9.5 L21 12 L13.5 14.5 L12 22 L10.5 14.5 L3 12 L10.5 9.5 Z" />
             </svg>
           </div>
 
-          <p className="text-base font-medium text-text-primary">
+          <p className="text-xl font-semibold text-text-primary">
             AI is working...
           </p>
           {fields.length > 0 && (
-            <p className="text-sm text-text-muted text-center max-w-md">
+            <p className="text-sm text-text-muted text-center max-w-sm">
               Soon you will have {fieldList} updated
             </p>
           )}

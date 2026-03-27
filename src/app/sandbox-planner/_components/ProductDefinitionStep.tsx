@@ -66,8 +66,14 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
     );
   }, [initialUserTypes]);
 
+  const canSave =
+    summary.trim().length > 0 &&
+    features.trim().length > 0 &&
+    !isSaving &&
+    !isRegenerating;
+
   async function handleSave() {
-    if (isSaving) return;
+    if (!canSave) return;
     setIsSaving(true);
     setError(null);
 
@@ -351,7 +357,7 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
       <div className="flex justify-end">
         <button
           onClick={handleSave}
-          disabled={isSaving || isRegenerating}
+          disabled={!canSave}
           className={cn(
             "flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium",
             "bg-green-600 text-white hover:bg-green-700 transition-colors",

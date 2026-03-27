@@ -6,7 +6,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { IdeaBlock } from "@/types/sandbox-planner";
 import type { AiService } from "@/types/settings";
 import { generateAiJsonResponse } from "@/lib/api/ai-dispatcher";
@@ -292,6 +292,93 @@ export async function deleteOptimizationSuggestion(
   return {};
 }
 
+// ── Prompt DB Helpers ─────────────────────────────────────────────────────────
+
+/** Fetch prompt template from DB by step name. Uses service client to bypass RLS. */
+async function getPromptTemplate(step: string): Promise<string | null> {
+  const supabase = createServiceClient();
+  const { data } = await supabase
+    .from("prompt")
+    .select("prompt_1")
+    .eq("type", step)
+    .maybeSingle();
+  return (data as { prompt_1: string | null } | null)?.prompt_1 ?? null;
+}
+
+/** Replace {{variable}} placeholders in a template string. */
+function renderPrompt(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? "");
+}
+
+const FALLBACK_STRUCTURE_ALIGN = `You are a business analyst. Given the following startup idea, extract and return a JSON object with exactly these keys:
+- "The Core Problem": A detailed description of the core problem this idea solves.
+- "Target Audience": A detailed description of the primary target audience.
+- "Primary Success Metrics": Specific, quantifiable success metrics.
+
+Idea Name: {{idea_name}}
+Idea Description: {{idea_description}}
+
+Return ONLY valid JSON.`;
+
+const FALLBACK_REFINING_ICP = `You are an expert in Ideal Customer Profile analysis. Given the following business idea and its structure, generate 3-5 distinct ICPs.
+
+Idea: {{idea_name}} — {{idea_description}}
+Core Problem: {{core_problem}}
+Target Audience: {{target_audience}}
+
+Return a JSON object with key "ICPs" containing an array of objects, each with:
+- "name": ICP persona name
+- "description": Brief description of this persona
+- "operational_environment": Day in the life context and environment
+- "strategic_pain_points_and_acute_needs": Key pain points and urgent needs
+
+Return ONLY valid JSON.`;
+
+const FALLBACK_PRODUCT_DEFINITION = `You are a product strategist. Given the following startup idea, define the product.
+
+Idea: {{idea_name}} — {{idea_description}}
+Core Problem: {{core_problem}}
+Target Audience: {{target_audience}}
+ICPs: {{icp_names}}
+
+Return a JSON object with:
+- "Product Overview": Rich HTML text describing the product vision and architecture
+- "Feature List & Logic": Rich HTML text with features organized by categories
+- "User Flows": Array of objects with "user_name" (string), "description" (string), "user_flow" (string with HTML flow description)
+
+Return ONLY valid JSON.`;
+
+const FALLBACK_STRATEGIC_FRAMEWORKS = `You are a strategic business consultant. Generate comprehensive strategic frameworks for each ICP.
+
+Idea: {{idea_name}} — {{idea_description}}
+Core Problem: {{core_problem}}
+Target Audience: {{target_audience}}
+
+ICPs:
+{{icp_descriptions}}
+
+For EACH ICP, return a JSON object with key "ICPs" containing an array of objects with:
+- "id": The ICP identifier (use their name as id)
+- "name": ICP name
+- "value_proposition_icp_pains": Value proposition addressing ICP pains
+- "value_proposition_icp_gains": Value proposition gains for this ICP
+- "value_proposition_value_map_solutions": Solutions mapped to this ICP
+- "value_proposition_value_map_gain_creators": Gain creators for this ICP
+- "jtbd": Jobs To Be Done synthesis text
+- "architect_title": ICP archetype title
+- "architect_subtitle": ICP archetype subtitle
+- "architect_tags": Array of descriptor tags
+- "architect_psychographics": Psychographic description
+- "architect_firmographics": Firmographic description
+- "pitch_need": NABC pitch — Need
+- "pitch_approach": NABC pitch — Approach
+- "pitch_benefit": NABC pitch — Benefit
+- "pitch_competition": NABC pitch — Competition
+
+Also include an "optimization_suggestions" array with objects: "name", "description".
+
+Return ONLY valid JSON.`;
+
 // ── AI Generation ────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -441,15 +528,11 @@ async function generateStructureAlign(
   ideaId: string,
   aiConfig: AiConfig
 ): Promise<{ error?: string }> {
-  const prompt = `You are a business analyst. Given the following startup idea, extract and return a JSON object with exactly these keys:
-- "The Core Problem": A detailed description of the core problem this idea solves.
-- "Target Audience": A detailed description of the primary target audience.
-- "Primary Success Metrics": Specific, quantifiable success metrics.
-
-Idea Name: ${idea.name}
-Idea Description: ${idea.description ?? "No description provided."}
-
-Return ONLY valid JSON.`;
+  const template = (await getPromptTemplate("structure_align")) ?? FALLBACK_STRUCTURE_ALIGN;
+  const prompt = renderPrompt(template, {
+    idea_name: idea.name,
+    idea_description: idea.description ?? "No description provided.",
+  });
 
   const res = await generateAiJsonResponse<StructureAlignOutput>({
     service: aiConfig.service,
@@ -496,19 +579,13 @@ async function generateRefiningIcp(
   ideaId: string,
   aiConfig: AiConfig
 ): Promise<{ error?: string }> {
-  const prompt = `You are an expert in Ideal Customer Profile analysis. Given the following business idea and its structure, generate 3-5 distinct ICPs.
-
-Idea: ${idea.name} — ${idea.description ?? ""}
-Core Problem: ${structureAlign?.core_problem ?? "Not defined yet"}
-Target Audience: ${structureAlign?.target_audience ?? "Not defined yet"}
-
-Return a JSON object with key "ICPs" containing an array of objects, each with:
-- "name": ICP persona name (e.g. "Self Advocating Adult with Physical Disability")
-- "description": Brief description of this persona
-- "operational_environment": Day in the life context and environment
-- "strategic_pain_points_and_acute_needs": Key pain points and urgent needs
-
-Return ONLY valid JSON.`;
+  const template = (await getPromptTemplate("refining_icp")) ?? FALLBACK_REFINING_ICP;
+  const prompt = renderPrompt(template, {
+    idea_name: idea.name,
+    idea_description: idea.description ?? "",
+    core_problem: structureAlign?.core_problem ?? "Not defined yet",
+    target_audience: structureAlign?.target_audience ?? "Not defined yet",
+  });
 
   const res = await generateAiJsonResponse<ICPsOutput>({
     service: aiConfig.service,
@@ -548,19 +625,14 @@ async function generateProductDefinition(
   aiConfig: AiConfig
 ): Promise<{ error?: string }> {
   const icpNames = icps.map((i) => i.name).filter(Boolean).join(", ");
-  const prompt = `You are a product strategist. Given the following startup idea, define the product.
-
-Idea: ${idea.name} — ${idea.description ?? ""}
-Core Problem: ${structureAlign?.core_problem ?? "Not defined yet"}
-Target Audience: ${structureAlign?.target_audience ?? "Not defined yet"}
-ICPs: ${icpNames || "None defined yet"}
-
-Return a JSON object with:
-- "Product Overview": Rich HTML text describing the product vision and architecture
-- "Feature List & Logic": Rich HTML text with features organized by categories
-- "User Flows": Array of objects with "user_name" (string), "description" (string), "user_flow" (string with HTML flow description)
-
-Return ONLY valid JSON.`;
+  const template = (await getPromptTemplate("product_definition_flows")) ?? FALLBACK_PRODUCT_DEFINITION;
+  const prompt = renderPrompt(template, {
+    idea_name: idea.name,
+    idea_description: idea.description ?? "",
+    core_problem: structureAlign?.core_problem ?? "Not defined yet",
+    target_audience: structureAlign?.target_audience ?? "Not defined yet",
+    icp_names: icpNames || "None defined yet",
+  });
 
   const res = await generateAiJsonResponse<ProductDefinitionOutput>({
     service: aiConfig.service,
@@ -630,36 +702,14 @@ async function generateStrategicFrameworks(
     .map((i) => `- ${i.name}: ${i.description ?? ""} (Day in life: ${i.day_in_life ?? ""}, Pain points: ${i.pain_points ?? ""})`)
     .join("\n");
 
-  const prompt = `You are a strategic business consultant. Generate comprehensive strategic frameworks for each ICP.
-
-Idea: ${idea.name} — ${idea.description ?? ""}
-Core Problem: ${structureAlign?.core_problem ?? "Not defined yet"}
-Target Audience: ${structureAlign?.target_audience ?? "Not defined yet"}
-
-ICPs:
-${icpDescriptions}
-
-For EACH ICP, return a JSON object with key "ICPs" containing an array of objects with:
-- "id": The ICP identifier (use their name as id)
-- "name": ICP name
-- "value_proposition_icp_pains": Value proposition addressing ICP pains
-- "value_proposition_icp_gains": Value proposition gains for this ICP
-- "value_proposition_value_map_solutions": Solutions mapped to this ICP
-- "value_proposition_value_map_gain_creators": Gain creators for this ICP
-- "jtbd": Jobs To Be Done synthesis text
-- "architect_title": ICP archetype title
-- "architect_subtitle": ICP archetype subtitle
-- "architect_tags": Array of descriptor tags
-- "architect_psychographics": Psychographic description
-- "architect_firmographics": Firmographic description
-- "pitch_need": NABC pitch — Need
-- "pitch_approach": NABC pitch — Approach
-- "pitch_benefit": NABC pitch — Benefit
-- "pitch_competition": NABC pitch — Competition
-
-Also include an "optimization_suggestions" array for each ICP with objects: "name", "description".
-
-Return ONLY valid JSON.`;
+  const template = (await getPromptTemplate("strategic_frameworks")) ?? FALLBACK_STRATEGIC_FRAMEWORKS;
+  const prompt = renderPrompt(template, {
+    idea_name: idea.name,
+    idea_description: idea.description ?? "",
+    core_problem: structureAlign?.core_problem ?? "Not defined yet",
+    target_audience: structureAlign?.target_audience ?? "Not defined yet",
+    icp_descriptions: icpDescriptions,
+  });
 
   const res = await generateAiJsonResponse<StrategicFrameworksOutput>({
     service: aiConfig.service,

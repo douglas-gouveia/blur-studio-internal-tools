@@ -29,6 +29,33 @@ interface SandboxPlannerShellProps {
   aiSettings: UserAiSettingsClient;
 }
 
+/** Derive which steps are unlocked based on saved data in ideaFull. */
+function computeUnlockedSteps(ideaFull: IdeaFull): Set<IdeaBlock> {
+  const unlocked = new Set<IdeaBlock>(["ideas", "structure_align"]);
+  const { structureAlign, icps, productDefinition } = ideaFull;
+
+  const structureDone =
+    !!structureAlign?.core_problem?.trim() &&
+    !!structureAlign?.target_audience?.trim() &&
+    !!structureAlign?.success_metrics?.trim();
+
+  if (structureDone) unlocked.add("refining_icp");
+
+  const icpsDone =
+    icps.length > 0 &&
+    icps.every((i) => i.day_in_life?.trim() && i.pain_points?.trim());
+
+  if (icpsDone) unlocked.add("product_definition_flows");
+
+  const productDone =
+    !!productDefinition?.summary?.trim() &&
+    !!productDefinition?.features?.trim();
+
+  if (productDone) unlocked.add("strategic_frameworks");
+
+  return unlocked;
+}
+
 /** Root client component that orchestrates all sandbox-planner views. */
 export default function SandboxPlannerShell({
   ideas,
@@ -44,14 +71,23 @@ export default function SandboxPlannerShell({
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<IdeaBlock>(initialTab);
 
-  // Sync tab from URL
+  const unlockedSteps = ideaFull ? computeUnlockedSteps(ideaFull) : new Set<IdeaBlock>(["ideas"]);
+
+  // Sync tab from URL; if the tab is locked, navigate to the last unlocked step
   useEffect(() => {
     const tab = searchParams.get("tab") as IdeaBlock | null;
     if (tab && IDEA_BLOCKS_ORDERED.includes(tab)) {
-      setActiveTab(tab);
+      if (ideaFull && !unlockedSteps.has(tab)) {
+        // Find the last unlocked step
+        const lastUnlocked = IDEA_BLOCKS_ORDERED.filter((b) => unlockedSteps.has(b)).at(-1);
+        if (lastUnlocked) navigateTab(lastUnlocked);
+      } else {
+        setActiveTab(tab);
+      }
     } else if (!searchParams.get("idea")) {
       setActiveTab("ideas");
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   // Subscribe to realtime idea updates for AI polling
@@ -70,7 +106,6 @@ export default function SandboxPlannerShell({
         },
         (payload) => {
           const updated = payload.new as { current_blocks_updating: string | null };
-          // When AI finishes (current_blocks_updating cleared), refresh data
           if (!updated.current_blocks_updating) {
             router.refresh();
           }
@@ -123,29 +158,42 @@ export default function SandboxPlannerShell({
     );
   }
 
-  // Idea selected — show tab navigation + step content
+  // Idea selected — show breadcrumb navigation + step content
   const stepInfo = IDEA_BLOCK_STEPS[activeTab];
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Tab navigation */}
-      <div className="shrink-0 border-b border-border bg-surface">
-        <div className="flex items-center gap-1 px-6 pt-4">
-          {IDEA_BLOCKS_ORDERED.map((block) => (
-            <button
-              key={block}
-              onClick={() => navigateTab(block)}
-              className={cn(
-                "px-4 py-2 text-sm font-medium rounded-t-md transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
-                activeTab === block
-                  ? "bg-accent text-white"
-                  : "text-text-secondary hover:text-text-primary hover:bg-muted"
-              )}
-            >
-              {IDEA_BLOCK_LABELS[block]}
-            </button>
-          ))}
+      {/* Breadcrumb tab navigation */}
+      <div className="shrink-0 border-b border-border bg-surface px-6 pt-4 pb-0">
+        <div className="inline-flex items-center gap-1 bg-surface/80 rounded-full px-3 py-1.5 border border-border mb-4">
+          {IDEA_BLOCKS_ORDERED.map((block, index) => {
+            const isActive = activeTab === block;
+            const isUnlocked = unlockedSteps.has(block);
+            const isLast = index === IDEA_BLOCKS_ORDERED.length - 1;
+
+            return (
+              <span key={block} className="flex items-center gap-1">
+                <button
+                  onClick={() => isUnlocked && navigateTab(block)}
+                  disabled={!isUnlocked}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-sm transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+                    isActive
+                      ? "bg-white text-gray-900 font-semibold shadow-sm"
+                      : isUnlocked
+                      ? "text-text-secondary hover:text-text-primary cursor-pointer"
+                      : "text-text-muted opacity-40 cursor-not-allowed"
+                  )}
+                >
+                  {IDEA_BLOCK_LABELS[block]}
+                </button>
+                {!isLast && (
+                  <span className="text-text-muted text-xs select-none">›</span>
+                )}
+              </span>
+            );
+          })}
         </div>
       </div>
 

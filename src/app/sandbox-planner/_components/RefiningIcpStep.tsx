@@ -33,6 +33,13 @@ export default function RefiningIcpStep({ ideaFull }: RefiningIcpStepProps) {
 
   const selectedIcp = icps.find((i) => i.id === selectedIcpId) ?? null;
 
+  // Sync selected ICP when icps list changes (e.g. after AI regeneration)
+  useEffect(() => {
+    setSelectedIcpId((prev) =>
+      icps.find((i) => i.id === prev) ? prev : (icps[0]?.id ?? null)
+    );
+  }, [icps]);
+
   // Sync fields when selected ICP changes
   useEffect(() => {
     if (selectedIcp) {
@@ -44,8 +51,15 @@ export default function RefiningIcpStep({ ideaFull }: RefiningIcpStepProps) {
     }
   }, [selectedIcp]);
 
+  const canSave =
+    dayInLife.trim().length > 0 &&
+    painPoints.trim().length > 0 &&
+    !!selectedIcpId &&
+    !isSaving &&
+    !isRegenerating;
+
   async function handleSave() {
-    if (!selectedIcpId || isSaving) return;
+    if (!canSave) return;
     setIsSaving(true);
     setError(null);
 
@@ -231,7 +245,7 @@ export default function RefiningIcpStep({ ideaFull }: RefiningIcpStepProps) {
             </button>
             <button
               onClick={handleSave}
-              disabled={!selectedIcpId || isSaving || isRegenerating}
+              disabled={!canSave}
               className={cn(
                 "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium",
                 "bg-green-600 text-white hover:bg-green-700 transition-colors",

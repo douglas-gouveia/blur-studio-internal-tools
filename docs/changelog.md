@@ -5,6 +5,22 @@ Format: `[YYYY-MM-DD] — Description`
 
 ---
 
+## [2026-03-27] — Feature: Prompts DB, Prompts page, breadcrumb nav, step gating, improved AI overlay
+
+- **Migration `20260327000000`**: Added `step` + `updated_at` columns to existing `prompt_group` table; added `prompt_1`, `prompt_2`, `prompt_3`, `name`, `updated_at` columns to `prompt` table; seeded 4 prompt groups and 4 prompt templates with `{{variable}}` placeholder syntax; made `prompt.group` nullable to fix schema drift; RLS + triggers applied
+- Updated `src/app/sandbox-planner/actions.ts` — added `getPromptTemplate(step)` helper (reads from `prompt` table via service client bypassing RLS) and `renderPrompt(template, vars)` helper; all 4 generate functions now read prompt from DB with hardcoded fallback constants (`FALLBACK_*`)
+- Created `src/app/prompts/page.tsx` — server component; admin/manager guard (redirects to `/projects` otherwise); fetches prompt groups + prompts; renders Sidebar + PromptsShell
+- Created `src/app/prompts/actions.ts` — `getPromptGroups()` (parallel fetch groups + prompts, merged in TS), `updatePrompt(id, prompt_1)`, `updatePromptGroupName(id, name)` — all guarded by admin/manager check
+- Created `src/app/prompts/_components/PromptsShell.tsx` — accordion cards per group; editable group name + large textarea for prompt_1; variable hints per step; Save buttons with success feedback
+- Updated `src/components/layout/Sidebar.tsx` — added `ADMIN_NAV_ITEMS` with conditional Prompts link (visible only to admin/manager); added `IconPrompt` SVG
+- Rewrote `src/app/sandbox-planner/_components/SandboxPlannerShell.tsx` — breadcrumb nav with `›` separators replacing pill tabs; active step = white pill, locked = dimmed+disabled; `computeUnlockedSteps(ideaFull)` derives unlock state from data presence (no new DB columns); auto-navigates away from locked step
+- Updated `src/app/sandbox-planner/_components/AiLoadingOverlay.tsx` — circle enlarged from `w-16` to `w-24`; sparkle/star SVG icon replacing lightning bolt; text enlarged to `text-xl`; container min-height increased to `min-h-96`
+- Updated `src/app/sandbox-planner/_components/RefiningIcpStep.tsx` — added `canSave` guard (both fields + ICP selected); added `useEffect` to sync `selectedIcpId` when `icps` prop changes after AI regeneration
+- Updated `src/app/sandbox-planner/_components/ProductDefinitionStep.tsx` — added `canSave` guard (summary + features both non-empty)
+- TypeScript: 0 errors
+
+---
+
 ## [2026-03-26] — Feature: Settings page, AI multi-provider dispatch, project filtering, AI settings gate
 
 - **Migration `20260326000000`**: Redesigned idea access control — dropped per-table `authorized_users` columns, access now derived from `idea.project.authorized_users` via RLS joins
