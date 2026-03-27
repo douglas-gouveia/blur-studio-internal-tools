@@ -13,10 +13,17 @@ export async function signIn(
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  let authError: string | null = null;
 
-  if (error) {
-    return { error: error.message };
+  try {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) authError = error.message;
+  } catch {
+    return { error: "Unable to reach the server. Please check your connection and try again." };
+  }
+
+  if (authError) {
+    return { error: authError };
   }
 
   // Determine where to route based on user type (profiles.type)

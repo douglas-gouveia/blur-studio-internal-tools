@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useTransition } from "react";
 import Modal from "./Modal";
+import DatePicker from "@/components/DatePicker";
 import type { TimeTrack } from "@/types/projects";
 import { TIME_OPTIONS, minToTimeStr, timeStrToMin } from "@/types/projects";
 import { getTaskTimeEntries, upsertTimeEntry, deleteTimeEntry } from "../../actions";
@@ -118,11 +119,10 @@ export default function TaskTimeTrackerModal({
               const initials = ((p?.first_name?.[0] ?? "") + (p?.last_name?.[0] ?? "")).toUpperCase() || "?";
               return (
                 <div key={idx} className="grid grid-cols-[1fr_110px_110px_90px_36px_32px] gap-2 px-3 py-2 border-t border-border items-center">
-                  <input
-                    type="date"
+                  <DatePicker
                     value={entry.date}
-                    onChange={(e) => updateEntry(idx, { date: e.target.value })}
-                    className="text-xs bg-muted border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+                    onChange={(v) => updateEntry(idx, { date: v })}
+                    size="compact"
                   />
                   <select
                     value={minToTimeStr(entry.startMin)}

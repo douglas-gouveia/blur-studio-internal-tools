@@ -24,9 +24,13 @@
     "@tiptap/extension-underline": "^3.20.1",
     "@tiptap/react": "^3.20.1",
     "@tiptap/starter-kit": "^3.20.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
     "next": "16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-day-picker": "^9.14.0",
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

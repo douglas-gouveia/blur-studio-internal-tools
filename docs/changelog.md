@@ -5,6 +5,51 @@ Format: `[YYYY-MM-DD] — Description`
 
 ---
 
+## [2026-03-26] — Feature: Settings page, AI multi-provider dispatch, project filtering, AI settings gate
+
+- **Migration `20260326000000`**: Redesigned idea access control — dropped per-table `authorized_users` columns, access now derived from `idea.project.authorized_users` via RLS joins
+- **Migration `20260326100000`**: Created `user_ai_settings` table (per-user AI config with RLS, one row per user)
+- Created `src/types/settings.ts` — types for AI settings (`AiService`, `UserAiSettingsClient`, `SaveAiSettingsPayload`, model defaults)
+- Created `src/lib/api/claude.ts` — Anthropic Claude Messages API client (`generateClaudeResponse`, `generateClaudeJsonResponse`)
+- Created `src/lib/api/ai-dispatcher.ts` — thin routing layer (`generateAiJsonResponse`) dispatching to OpenAI, Gemini, or Claude
+- Modified `src/lib/api/openai.ts` and `src/lib/api/gemini.ts` — added optional `apiKey` param (fallback to env var)
+- Created `src/components/features/AiSettingsForm.tsx` — reusable AI settings form (service selector, per-service API key + model fields)
+- Created `src/app/settings/page.tsx` — Settings page server component (auth, profile + AI settings fetch, key masking)
+- Created `src/app/settings/actions.ts` — `saveAiSettings` upsert + `getAiSettingsForGeneration` server actions
+- Created `src/app/settings/_components/SettingsShell.tsx` — Settings page client wrapper
+- Updated `src/components/layout/Sidebar.tsx` — added Settings nav item with gear icon
+- Updated `src/app/sandbox-planner/page.tsx` — added `?project=` URL param, AI settings fetch, `hasAiConfigured` computation
+- Updated `src/app/sandbox-planner/_components/SandboxPlannerShell.tsx` — passes project filter + AI settings props, preserves `?project=` in navigation
+- Rewrote `src/app/sandbox-planner/_components/IdeasGrid.tsx` — URL-based project filtering (all projects in sidebar), AI settings gate on "See Refinement"
+- Updated `src/app/sandbox-planner/_components/CreateIdeaModal.tsx` — accepts `defaultProjectId` prop, syncs from URL
+- Created `src/app/sandbox-planner/_components/AiSettingsModal.tsx` — popup modal wrapping AiSettingsForm for inline AI configuration
+- Updated `src/app/sandbox-planner/actions.ts` — uses `resolveAiConfig` + `generateAiJsonResponse` dispatcher instead of hardcoded OpenAI
+- TypeScript: 0 errors
+
+---
+
+## [2026-03-24] — Build: Sandbox Planner page (5-step AI wizard)
+
+- Created `src/lib/utils.ts` — `cn()` utility (clsx + tailwind-merge)
+- Created `src/types/sandbox-planner.ts` — types, enums, labels for all idea entities (`Idea`, `IdeaIcp`, `IdeaUserType`, `IdeaOptimizationSuggestion`, `IdeaBlockProductDefinition`, `IdeaBlockStructureAlign`, `IdeaFull`)
+- Updated `src/components/layout/Sidebar.tsx` — added "Sandbox Planner" nav item with lightbulb icon
+- Created `src/app/sandbox-planner/page.tsx` — server component with auth, parallel data fetching, full idea hydration
+- Created `src/app/sandbox-planner/actions.ts` — 15 server actions (CRUD for ideas, ICPs, user types, optimization suggestions + AI generation triggers using OpenAI gpt-4.1)
+- Created `src/app/sandbox-planner/_components/`:
+  - `SandboxPlannerShell.tsx` — client shell with tab navigation, URL-synced state, Supabase realtime subscription for AI polling
+  - `IdeasGrid.tsx` — Step 1: idea cards grid with project filter sidebar, empty state
+  - `CreateIdeaModal.tsx` — create idea form (name*, description*, project dropdown) with early validation and submit state
+  - `StructureAlignStep.tsx` — Step 2: editable Core Problem, Target Audience, Success Metrics with AI regeneration
+  - `AiLoadingOverlay.tsx` — AI spinner overlay with animated icon and auto-dismissing success banner
+  - `IcpPillSelector.tsx` — selectable ICP persona pills with optional completion badges
+  - `RefiningIcpStep.tsx` — Step 3: per-ICP Day in Life + Pain Points editing with instructions panel
+  - `RichTextEditor.tsx` — TipTap wrapper with formatting toolbar (Bold, Italic, Underline, Headings, Lists, Code)
+  - `ProductDefinitionStep.tsx` — Step 4: rich text product summary, features display, user type flow pills
+  - `StrategicFrameworksStep.tsx` — Step 5: Value Proposition, JTBD, ICP Architect, NABC Pitch cards + optimization suggestions
+- TypeScript: 0 errors
+
+---
+
 ## [2026-03-14] — Fix: Date picker, kanban ordering, cascade updates, performance, project popup
 
 - **DatePicker**: Added Delete/Backspace keyboard shortcut to clear selected date value

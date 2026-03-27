@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
+import DatePicker from "@/components/DatePicker";
 import type {
   Task,
   TaskStatus,
@@ -38,6 +39,10 @@ interface TaskModalProps {
   currentUserId: string;
   /** Available milestones for client/qa_requests task creation */
   milestones?: Task[];
+  /** Pre-set status when creating from a Kanban column */
+  defaultStatus?: TaskStatus;
+  /** Pre-set order when creating from a Kanban column */
+  defaultOrder?: number;
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -75,6 +80,8 @@ export default function TaskModal({
   timeEntries = [],
   currentUserId,
   milestones = [],
+  defaultStatus,
+  defaultOrder,
 }: TaskModalProps) {
   const router = useRouter();
   const isEdit = !!task;
@@ -83,7 +90,7 @@ export default function TaskModal({
 
   // Task fields
   const [name, setName] = useState(task?.name ?? "");
-  const [status, setStatus] = useState<TaskStatus>(task?.status ?? "not_started");
+  const [status, setStatus] = useState<TaskStatus>(task?.status ?? defaultStatus ?? "not_started");
   const [estimatedTime, setEstimatedTime] = useState(task?.estimated_time?.toString() ?? "");
   const [startEst, setStartEst] = useState(task?.start_date_estimated ?? "");
   const [endEst, setEndEst] = useState(task?.end_date_estimated ?? "");
@@ -170,7 +177,7 @@ export default function TaskModal({
         end_date_estimated: endEst || null,
         start_date_real: startReal || null,
         end_date_real: endReal || null,
-        order: task?.order ?? null,
+        order: task?.order ?? defaultOrder ?? null,
         assignee_ids: assigneeIds,
       };
 
@@ -316,21 +323,21 @@ export default function TaskModal({
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-xs font-medium text-text-secondary mb-1 block">Start Date (Estimated)</label>
-            <input type="date" value={startEst} onChange={(e) => setStartEst(e.target.value)} className="input-field" />
+            <DatePicker value={startEst} onChange={setStartEst} />
           </div>
           <div>
             <label className="text-xs font-medium text-text-secondary mb-1 block">End Date (Estimated)</label>
-            <input type="date" value={endEst} onChange={(e) => setEndEst(e.target.value)} className="input-field" />
+            <DatePicker value={endEst} onChange={setEndEst} />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-xs font-medium text-text-secondary mb-1 block">Start Date (Real)</label>
-            <input type="date" value={startReal} onChange={(e) => setStartReal(e.target.value)} className="input-field" />
+            <DatePicker value={startReal} onChange={setStartReal} />
           </div>
           <div>
             <label className="text-xs font-medium text-text-secondary mb-1 block">End Date (Real)</label>
-            <input type="date" value={endReal} onChange={(e) => setEndReal(e.target.value)} className="input-field" />
+            <DatePicker value={endReal} onChange={setEndReal} />
           </div>
         </div>
 
@@ -349,11 +356,10 @@ export default function TaskModal({
 
             {entries.map((entry, idx) => (
               <div key={idx} className="grid grid-cols-[1fr_110px_110px_90px_40px_32px] gap-2 px-3 py-2 border-t border-border items-center">
-                <input
-                  type="date"
+                <DatePicker
                   value={entry.date}
-                  onChange={(e) => updateEntry(idx, { date: e.target.value })}
-                  className="text-xs bg-muted border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+                  onChange={(v) => updateEntry(idx, { date: v })}
+                  size="compact"
                 />
                 <select
                   value={minToTimeStr(entry.startMin)}

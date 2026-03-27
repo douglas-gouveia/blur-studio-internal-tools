@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useTransition } from "react";
 import Modal from "./Modal";
+import DatePicker from "@/components/DatePicker";
 import type { Task, QATimeTrack } from "@/types/projects";
 import { TIME_OPTIONS, minToTimeStr, timeStrToMin } from "@/types/projects";
 import { upsertQATimeEntry, deleteQATimeEntry } from "../../actions";
@@ -200,11 +201,10 @@ export default function QATimeTrackerModal({
                         key={globalIdx}
                         className="grid grid-cols-[130px_100px_100px_80px_40px_24px_32px] gap-2 px-3 py-2 border-t border-border/30 items-center"
                       >
-                        <input
-                          type="date"
+                        <DatePicker
                           value={entry.date}
-                          onChange={(e) => updateEntry(globalIdx, { date: e.target.value })}
-                          className="text-xs bg-muted border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+                          onChange={(v) => updateEntry(globalIdx, { date: v })}
+                          size="compact"
                         />
                         <select
                           value={minToTimeStr(entry.startMin)}

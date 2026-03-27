@@ -35,7 +35,7 @@
 - [ ] `users`
 - [ ] `profile`
 - [ ] `docs`
-- [ ] `sandbox-planner`
+- [x] `sandbox-planner`
 - [ ] `recommended-projects`
 - [ ] `referrer-dashboard`
 

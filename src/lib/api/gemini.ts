@@ -60,6 +60,8 @@ export interface GeminiRequestParams {
   model?: string;
   contents: GeminiContent[];
   generationConfig?: GeminiGenerationConfig;
+  /** Optional API key — falls back to GEMINI_API_KEY env var */
+  apiKey?: string;
 }
 
 // ── Main function ─────────────────────────────────────────────────────────────
@@ -71,8 +73,8 @@ export interface GeminiRequestParams {
 export async function generateGeminiContent(
   params: GeminiRequestParams
 ): Promise<GeminiResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("Missing env: GEMINI_API_KEY");
+  const apiKey = params.apiKey ?? process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Missing Gemini API key: provide apiKey param or set GEMINI_API_KEY env var");
 
   const { model = "gemini-2.5-flash", contents, generationConfig } = params;
 
@@ -115,12 +117,14 @@ export async function generateGeminiContent(
  */
 export async function generateGeminiJsonResponse<T = unknown>(
   prompt: string,
-  model = "gemini-2.5-flash"
+  model = "gemini-2.5-flash",
+  apiKey?: string
 ): Promise<{ data?: T; returned_an_error: boolean; error?: string }> {
   const result = await generateGeminiContent({
     model,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: { response_mime_type: "application/json" },
+    apiKey,
   });
 
   if (result.returned_an_error || !result.text) {

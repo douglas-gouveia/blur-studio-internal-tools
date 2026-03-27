@@ -59,6 +59,8 @@ export interface OpenAIRequestParams {
   format?: "text" | "json_object";
   /** Optional system instructions */
   instructions?: string;
+  /** Optional API key — falls back to OPENAI_API_KEY env var */
+  apiKey?: string;
 }
 
 // ── Main function ─────────────────────────────────────────────────────────────
@@ -70,8 +72,8 @@ export interface OpenAIRequestParams {
 export async function generateOpenAIResponse(
   params: OpenAIRequestParams
 ): Promise<OpenAIResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("Missing env: OPENAI_API_KEY");
+  const apiKey = params.apiKey ?? process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("Missing OpenAI API key: provide apiKey param or set OPENAI_API_KEY env var");
 
   const { model, input, format = "text", instructions } = params;
 
