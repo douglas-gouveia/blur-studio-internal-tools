@@ -7,7 +7,7 @@
  */
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { IdeaFull, IdeaUserType } from "@/types/sandbox-planner";
 import {
   saveProductDefinition,
@@ -51,6 +51,22 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
   const [createError, setCreateError] = useState<string | null>(null);
 
   const selectedType = userTypes.find((u) => u.id === selectedUserTypeId) ?? null;
+
+  // ── Sync props → state after AI generation + router.refresh() ────────────
+  useEffect(() => {
+    setSummary(productDefinition?.summary ?? "");
+    setFeatures(productDefinition?.features ?? "");
+  }, [productDefinition]);
+
+  useEffect(() => {
+    setUserTypes(initialUserTypes);
+    setFlowContent(Object.fromEntries(initialUserTypes.map((ut) => [ut.id, ut.flows ?? ""])));
+    setSelectedUserTypeId((prev) =>
+      initialUserTypes.find((ut) => ut.id === prev)
+        ? prev
+        : (initialUserTypes[0]?.id ?? null)
+    );
+  }, [initialUserTypes]);
 
   // ── Save ─────────────────────────────────────────────────────────────────
   async function handleSave() {
@@ -195,15 +211,29 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
           </div>
         </div>
 
-        {/* Right column — Product Summary rich text */}
-        <div className="space-y-2">
-          <label className="block text-sm font-semibold text-text-primary">Product Summary*</label>
-          <RichTextEditor
-            content={summary}
-            onChange={setSummary}
-            editable={!isSaving && !isRegenerating}
-          />
-          <div className="flex justify-end pt-1">
+        {/* Right column — Product Summary + Feature List & Logic + Regenerate */}
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold text-text-primary">Product Summary*</label>
+            <RichTextEditor
+              content={summary}
+              onChange={setSummary}
+              editable={!isSaving && !isRegenerating}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold text-text-primary">
+              Feature List &amp; Logic
+            </label>
+            <RichTextEditor
+              content={features}
+              onChange={setFeatures}
+              editable={!isSaving && !isRegenerating}
+            />
+          </div>
+
+          <div className="flex justify-end">
             <button
               onClick={handleRegenerate}
               disabled={isRegenerating || isSaving}
@@ -221,18 +251,6 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
             </button>
           </div>
         </div>
-      </div>
-
-      {/* ── Feature List & Logic ─────────────────────────────────────────── */}
-      <div className="space-y-2">
-        <label className="block text-sm font-semibold text-text-primary">
-          Feature List &amp; Logic
-        </label>
-        <RichTextEditor
-          content={features}
-          onChange={setFeatures}
-          editable={!isSaving && !isRegenerating}
-        />
       </div>
 
       {/* ── User Type Flows ──────────────────────────────────────────────── */}
@@ -321,9 +339,22 @@ export default function ProductDefinitionStep({ ideaFull }: ProductDefinitionSte
         )}
 
         {userTypes.length === 0 && (
-          <p className="text-sm text-text-muted italic">
-            No user types yet. Click &quot;+ User Type&quot; to add one.
-          </p>
+          <div className="flex flex-col items-start gap-3 py-2">
+            <p className="text-sm text-text-muted italic">No user types yet.</p>
+            <button
+              onClick={handleRegenerate}
+              disabled={isRegenerating || isSaving}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium",
+                "bg-accent text-white hover:bg-accent/90 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                "disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              <IconRefresh />
+              {isRegenerating ? "Generating..." : "Generate User Flows with AI"}
+            </button>
+          </div>
         )}
       </div>
 
