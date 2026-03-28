@@ -298,11 +298,11 @@ export async function deleteOptimizationSuggestion(
 async function getPromptTemplate(step: string): Promise<string | null> {
   const supabase = createServiceClient();
   const { data } = await supabase
-    .from("prompt")
-    .select("prompt_1")
-    .eq("type", step)
+    .from("prompt" as never)
+    .select("description")
+    .eq("type" as never, step)
     .maybeSingle();
-  return (data as { prompt_1: string | null } | null)?.prompt_1 ?? null;
+  return (data as { description: string | null } | null)?.description ?? null;
 }
 
 /** Replace {{variable}} placeholders in a template string. */

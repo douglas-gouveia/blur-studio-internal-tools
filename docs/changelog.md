@@ -5,6 +5,16 @@ Format: `[YYYY-MM-DD] — Description`
 
 ---
 
+## [2026-03-28] — Refactor: Restructure prompt tables + redesign Prompts page
+
+- **Migration `20260327100000`**: `prompt_group` — dropped `step` column; `prompt` — added `description` (copied from `prompt_1`), dropped `prompt_1`/`prompt_2`/`prompt_3`, made `group` FK NOT NULL with constraint; data: consolidated 4 prompt_group rows → single "SandBox Planner" row (id=9), all 4 prompts linked to it
+- Updated `src/app/prompts/actions.ts` — new data model: `PromptGroupRow` now contains `prompts[]` array (group → many prompts); replaced `updatePrompt(id, prompt_1)` with `updatePromptName(id, name)` + `updatePromptDescription(id, description)`; removed `step` from types; prompts fetched grouped by `group` FK
+- Rewrote `src/app/prompts/_components/PromptsShell.tsx` — one card per group showing editable group name; inside the card, each prompt is rendered as a sub-card with editable `name` input and editable `description` textarea; single "Save Prompt" button per prompt saves both fields in parallel
+- Updated `src/app/sandbox-planner/actions.ts` — `getPromptTemplate()` now reads `description` column instead of `prompt_1`
+- TypeScript: 0 errors
+
+---
+
 ## [2026-03-27] — Feature: Prompts DB, Prompts page, breadcrumb nav, step gating, improved AI overlay
 
 - **Migration `20260327000000`**: Added `step` + `updated_at` columns to existing `prompt_group` table; added `prompt_1`, `prompt_2`, `prompt_3`, `name`, `updated_at` columns to `prompt` table; seeded 4 prompt groups and 4 prompt templates with `{{variable}}` placeholder syntax; made `prompt.group` nullable to fix schema drift; RLS + triggers applied
